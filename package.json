@@ -1,0 +1,34 @@
+{
+  "name": "zimmer",
+  "version": "0.0.1",
+  "description": "Zim file packer",
+  "main": "zimmer.js",
+  "scripts": {
+    "test": "echo no tests"
+  },
+  "private": true,
+  "keywords": [
+    "zim",
+    "pack"
+  ],
+ "dependencies": {
+    "async": "*",
+    "expand-home-dir": "*",
+    "path": "*",
+    "mime-types": "*",
+    "lzma-native": "*",
+    "bufferpack": "*",
+    "htmlparser2": "*",
+    "domutils": "*",
+    "long": "*",
+    "uuid": "*",
+    "csv-parse": "*",
+    "csv-stringify": "*",
+    "fs-extra": "*",
+    "mmmagic": "*",
+    "sqlite3": "*",
+    "yargs": "*"
+  },
+  "author": "Vadim Shlykahov",
+  "license": "ISC"
+}
