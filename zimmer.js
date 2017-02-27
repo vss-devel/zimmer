@@ -463,7 +463,7 @@ Article.prototype.isCompressible = function () {
     }
     if (mimeType == 'image/svg+xml' || mimeType.split('/')[0] == 'text')
         return true;
-    return !! mimeDb[mimeType].compressible;
+    return !! (mimeDb[mimeType] && mimeDb[mimeType].compressible);
 };
 
 Article.prototype.storeData = function (callback) {
