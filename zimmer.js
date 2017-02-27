@@ -675,57 +675,51 @@ FileArticle.prototype.setTitle = function (dom) {
 FileArticle.prototype.alterLinks = function (dom) {
     var base = '/' + this.url;
     var nsBase = '/' + this.nameSpace + base;
-    var from = nsBase.split('/');
+    var baseSplit = nsBase.split('/');
+    var baseDepth = baseSplit.length - 1;
 
-    function path2relative (path) {
-        var nameSpace = getNameSpace(getMimeType(path));
-        if (!nameSpace)
-            return null
-        var absPath = '/' + nameSpace + url.resolve(base, path);
-        var to = absPath.split('/');
-        var i = 0;
-        var max = from.length-1;
-        for (; from[i] === to[0] && i < max; i++) {
-            to.shift();
-        }
-        for (; i < max; i++) {
-            to.unshift('..');
-        }
-        var relPath = to.join('/');
-        //~ log('path2relative', nsBase, path, absPath, relPath);
-        return relPath
-    }
     function toRelativeLink (elem, attr) {
         if (! (elem.attribs && elem.attribs[attr]))
-            return 0;
+            return false;
         try {
             var link = url.parse(elem.attribs[attr], true, true);
         } catch (err) {
             console.warn('alterLinks', err.message, elem.attribs[attr], 'at', base);
-            return 0;
+            return false;
         }
-        if ( link.protocol || link.host || ! link.pathname )
-            return 0;
+        var path = link.pathname;
+        if ( link.protocol || link.host || ! path )
+            return false;
+        var nameSpace = getNameSpace(getMimeType(path));
+        if ( ! nameSpace )
+            return false;
 
-        var relPath = path2relative (link.pathname);
-        if (relPath) {
-            link.pathname = relPath;
-            elem.attribs[attr] = url.format(link);
-            //~ log('FileArticle.prototype.alterLinks', decodeURIComponent(elem.attribs[attr]));
-            return 1;
+        // convert to relative path
+        var absPath = '/' + nameSpace + url.resolve(base, path);
+        var to = absPath.split('/');
+        var i = 0;
+        for (; baseSplit[i] === to[0] && i < baseDepth; i++) {
+            to.shift();
         }
-        return 0;
+        for (; i < baseDepth; i++) {
+            to.unshift('..');
+        }
+        var relPath = to.join('/');
+        log('alterLinks', nsBase, path, absPath, relPath);
+
+        link.pathname = relPath;
+        elem.attribs[attr] = url.format(link);
+        return true;
     };
 
     var res = domutils.filter(
         function (elem) {
-            // calculate both
-            return !!(toRelativeLink(elem, 'src') + toRelativeLink(elem, 'href'));
+            return toRelativeLink(elem, 'src') || toRelativeLink(elem, 'href');
         },
         dom,
         true
     );
-    //~ log('alterLinks', res.length);
+    log('alterLinks', res.length);
 
     return res.length != 0;
 };
