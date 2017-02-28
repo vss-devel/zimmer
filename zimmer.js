@@ -1306,13 +1306,13 @@ function main () {
             'd': {alias: 'description', default: ''},
             'c': {alias: 'creator', default: ''},
             'p': {alias: 'publisher', default: ''},
-            'v': {alias: 'verbose', type: 'boolean'},
-            'm': {alias: 'minChunkSize', type: 'number'},
-            'x': {alias: 'inflateHtml', type: 'boolean'},
-            'u': {alias: 'uniqueNamespace', type: 'boolean'},
+            'v': {alias: 'verbose', type: 'boolean', default: false},
+            'm': {alias: 'minChunkSize', type: 'number', default: Cluster.sizeThreshold / 1024},
+            'x': {alias: 'inflateHtml', type: 'boolean', default: false},
+            'u': {alias: 'uniqueNamespace', type: 'boolean', default: false},
             //~ 'r': {alias: 'redirects', default: 'redirects.csv'},
             'r': {alias: 'redirects', default: ''},
-            //~ 'i': {alias: 'withFullTextIndex', type:'boolean'},
+            //~ 'i': {alias: 'withFullTextIndex', type:'boolean', default: false},
             'h': {alias: 'help'}
         })
         .help('help')
