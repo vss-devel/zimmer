@@ -15,7 +15,7 @@ Optionaly to make it work as a replacement for *zimwriterfs*:
 * Symlink *zimmer* as *zimwriterfs*: `ln -s zimmer.js <some directory in $PATH>/zimwriterfs`
 * Make sure genuine *zimwriterfs* is not in the $PATH
 
-MWoffliner, for example, then should pick zimmer up instead of zimwriterfs when it creates ZIM file.
+[mwoffliner](https://github.com/kiwix/mwoffliner), for example, then should pick zimmer up instead of zimwriterfs when it creates ZIM file.
 
 ## Usage
 ```
