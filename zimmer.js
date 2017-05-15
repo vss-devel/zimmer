@@ -99,6 +99,8 @@ function getMimeType (path, realPath) {
 };
 
 var REDIRECT_MIME = '@REDIRECT@';
+var LINKTARGET_MIME = '@LINKTARGET@';
+var DELETEDENTRY_MIME = '@DELETEDENTRY@';
 
 var mimeTypeList = [];
 var mimeTypeCounter = [];
@@ -112,6 +114,10 @@ function mimeTypeIndex (mimeType) {
     }
     if (mimeType == REDIRECT_MIME)
         return 0xffff;
+    if (mimeType == LINKTARGET_MIME)
+        return 0xfffe;
+    if (mimeType == DELETEDENTRY_MIME)
+        return 0xfffd;
     var idx = mimeTypeList.indexOf(mimeType);
     if (idx != -1) {
         mimeTypeCounter[idx]++;
@@ -572,19 +578,77 @@ Article.prototype.toArticleIndex = function (callback) {
 };
 
 //
-// class RedirectArticle
+// class Linktarget
 //
-function RedirectArticle (path, nameSpace, title, redirect, redirectNameSpace) {
-    Article.call(this, path, REDIRECT_MIME, null, nameSpace, title);
-    this.redirect = (redirectNameSpace || 'A') + redirect;
-    log('RedirectArticle', nameSpace, path, this.redirect, this);
+function Linktarget (path, nameSpace, title) {
+    Article.call(this, path, LINKTARGET_MIME, nameSpace, title);
+    log('Linktarget', nameSpace, path, this);
 };
 
-util.inherits(RedirectArticle, Article);
+Linktarget.prototype.process = function (callback) {
+    log('Linktarget.prototype.process', this.url);
+    async.series([
+            this.storeDirEntry.bind(this),
+            this.toArticleIndex.bind(this)
+        ],
+        callback
+    );
+};
 
-RedirectArticle.prototype.process = function (callback) {
+Linktarget.prototype.storeDirEntry = function (callback) {
+    Article.prototype.storeDirEntry.call(this, true, true, callback);
+};
+
+util.inherits(Linktarget, Article);
+
+//
+// class DeletedEntry
+//
+function DeletedEntry (path, nameSpace, title) {
+    Article.call(this, path, DELETEDENTRY_MIME, nameSpace, title);
+    log('DeletedEntry', nameSpace, path, this);
+};
+
+util.inherits(DeletedEntry, Linktarget);
+
+//
+// class Redirect
+//
+function Redirect (path, nameSpace, title, redirect, redirectNameSpace) {
+    var src
+    if (path instanceof Article) { // converted Article
+        src = path
+        path = src.url
+        nameSpace = src.nameSpace
+        title = src.title
+        redirect = src.redirect
+    }
+    Article.call(this, path, REDIRECT_MIME, nameSpace, title);
+    this.redirect = (redirectNameSpace || nameSpace) + redirect;
+    log('Redirect', nameSpace, path, this.redirect, this);
     redirectCount ++;
-    this.toArticleIndex(callback);
+};
+
+util.inherits(Redirect, Article);
+
+Redirect.prototype.process = function (callback) {
+    async.series([
+            this.toArticleIndex.bind(this),
+            this.toRedirectIndex.bind(this)
+        ],
+        callback
+    );
+};
+
+Redirect.prototype.toRedirectIndex = function (callback) {
+    auxDb.run(
+        'INSERT INTO redirects (articleId, redirect) VALUES (?,?)',
+        [
+            this.articleId,
+            this.redirect
+        ],
+        callback
+    );
 };
 
 //
@@ -627,22 +691,23 @@ ResolvedRedirect.prototype.storeDirEntry = function (callback) {
 };
 
 //
-// class FileArticle
+// class File
 //
-function FileArticle (path, realPath) {
+function File (path, realPath) {
+    var url = path
     var mimeType = getMimeType(path, realPath);
     var nameSpace
     Article.call(this, url, mimeType, nameSpace);
     //~ log(this);
 };
 
-util.inherits (FileArticle, Article);
+util.inherits (File, Article);
 
-FileArticle.prototype.parse = function () {
+File.prototype.parse = function () {
     if (this.mimeType != 'text/html' ) {
         return null;
     }
-    //~ log('FileArticle.prototype.parse', this);
+    //~ log('File.prototype.parse', this);
     var text = this.data.toString();
 
     var parseError;
@@ -665,14 +730,14 @@ FileArticle.prototype.parse = function () {
     return handler.dom;
 };
 
-FileArticle.prototype.setTitle = function (dom) {
+File.prototype.setTitle = function (dom) {
     var elem = domutils.getElementsByTagName('title', dom, true)[0];
     if (elem)
         this.title = domutils.getText(elem);
     return this.title;
 };
 
-FileArticle.prototype.alterLinks = function (dom) {
+File.prototype.alterLinks = function (dom) {
 
     var base = '/' + this.url;
     var nsBase = '/' + this.nameSpace + base;
@@ -725,7 +790,7 @@ FileArticle.prototype.alterLinks = function (dom) {
     return res.length != 0;
 };
 
-FileArticle.prototype.getRedirect = function (dom) {
+File.prototype.getRedirect = function (dom) {
     var target = null;
 
     var isRedirectLink = function (elem) {
@@ -736,7 +801,7 @@ FileArticle.prototype.getRedirect = function (dom) {
         if (!(content[0] == 0 && content[1]))
             return false;
 
-        log('FileArticle.prototype.getRedirect', this.url, content, content[1].split('=', 2)[1]);
+        log('File.prototype.getRedirect', this.url, content, content[1].split('=', 2)[1]);
         var link = url.parse(content[1].split('=', 2)[1], true, true);
         if (link.protocol || link.host || ! link.pathname || link.pathname[0] =='/')
             return false;
@@ -755,7 +820,7 @@ FileArticle.prototype.getRedirect = function (dom) {
     return target;
 };
 
-FileArticle.prototype.load = function (callback) {
+File.prototype.load = function (callback) {
     async.waterfall([
             async.apply(fs.readFile, fullPath(this.url)),
 
@@ -771,7 +836,7 @@ FileArticle.prototype.load = function (callback) {
                 if (this.mimeType)
                     return cb();
                 mimeMagic.detect(data, function(err, mimeType) {
-                    log('FileArticle.prototype.load mimeMagic.detect', err, mimeType, this.url);
+                    log('File.prototype.load mimeMagic.detect', err, mimeType, this.url);
                     this.mimeType = mimeType;
                     cb(err);
                 }.bind(this));
@@ -926,7 +991,7 @@ function loadRedirects (callback) {
         reader,
         function (row, cb) {
             if (row && cb) {
-                new RedirectArticle (row.path, row.ns, row.title, row.target)
+                new Redirect (row.path, row.ns, row.title, row.target)
                     .process( function (err) {
                         cb(err, true)
                     });
@@ -1104,7 +1169,7 @@ function parseDirEntry(path, realPath, callback) {
                     async.setImmediate(parseDirEntry, path, realPath, callback);
                 });
             if (stats.isFile()) {
-                return new FileArticle (path, realPath) .process(callback);
+                return new File (path, realPath) .process(callback);
             }
 
             callback(new Error('Invalid dir entry ' + absPath));
