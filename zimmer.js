@@ -529,20 +529,27 @@ Article.prototype.process = function (callback) {
 // title           string      n/a     zero terminated     string with an title as refered in the Title pointer list or empty; in case it is empty, the URL is used as title
 // parameter       data        see parameter len   (not used) extra parameters
 
-Article.prototype.storeDirEntry = function (clusterNum, blobNum, callback) {
-    // this also serves redirect dirEntry, but the later is shorter in 4 bytes
+Article.prototype.storeDirEntry = function (clusterIdx, blobIdx, callback) {
+    // this also serves redirect dirEntry, which is shorter in 4 bytes
+    var needsSave = clusterIdx != null
+
+    if (! needsSave )
+        return async.setImmediate(callback);
+
+    var shortEntry = blobIdx == null
+
+    var buf = Buffer.allocUnsafe(shortEntry ? 12 : 16);
     var mimeIndex = mimeTypeIndex(this.mimeType);
-    var buf = Buffer.allocUnsafe(blobNum != null ? 16 : 12);
 
-    log('storeDirEntry', clusterNum, blobNum, mimeIndex, this);
+    log('storeDirEntry', clusterIdx, blobIdx, mimeIndex, this);
 
-    buf.writeUIntLE(mimeIndex,  0, 2);
-    buf.writeUIntLE(0,          2, 1); // parameters length
-    buf.write(this.nameSpace,   3, 1);
-    buf.writeUIntLE(0,          4, 4); // revision
-    buf.writeUIntLE(clusterNum, 8, 4); // or redirect target article index
-    if (blobNum != null)
-        buf.writeUIntLE(blobNum,12, 4);
+    buf.writeUIntLE(mimeIndex,     0, 2);
+    buf.writeUIntLE(0,             2, 1); // parameters length
+    buf.write(this.nameSpace,      3, 1);
+    buf.writeUIntLE(this.revision, 4, 4); // revision
+    buf.writeUIntLE(clusterIdx,    8, 4); // or redirect target article index
+    if (! shortEntry)
+        buf.writeUIntLE(blobIdx,  12, 4);
 
     var urlBuf = Buffer.from(this.url + '\0');
     var titleBuf = Buffer.from(this.title + '\0');
@@ -551,6 +558,7 @@ Article.prototype.storeDirEntry = function (clusterNum, blobNum, callback) {
         Buffer.concat([buf, urlBuf, titleBuf]),
         function (err, offset) {
             this.dirEntry = offset;
+            log('storeArticleEntry done', err || 'OK', offset, buf.length, this.url);
             callback(err);
         }.bind(this)
     );
