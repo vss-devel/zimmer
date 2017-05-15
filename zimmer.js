@@ -438,7 +438,7 @@ ClusterBuilder.finish = function (callback) {
 //
 // Article
 //
-function Article (path, mimeType, data, nameSpace, title) {
+function Article (path, mimeType, nameSpace, title, data) {
     if (! path)
         return;
     this.mimeType = mimeType;
@@ -591,7 +591,7 @@ RedirectArticle.prototype.process = function (callback) {
 // class ResolvedRedirect
 //
 function ResolvedRedirect (articleId, nameSpace, url, title, target) {
-    Article.call(this, url, REDIRECT_MIME, null, nameSpace, title);
+    Article.call(this, url, REDIRECT_MIME, nameSpace, title);
     this.target = target;
     this.articleId = articleId;
 };
@@ -621,7 +621,6 @@ ResolvedRedirect.prototype.process = function (callback) {
 // parameter       data    see parameter len   (not used) extra parameters
 
 ResolvedRedirect.prototype.storeDirEntry = function (callback) {
-    //~ log('RedirectArticle.prototype.storeDirEntry', this);
 
     // redirect dirEntry shorter on one 4 byte field
     Article.prototype.storeDirEntry.call(this, this.target, null, callback);
@@ -632,7 +631,8 @@ ResolvedRedirect.prototype.storeDirEntry = function (callback) {
 //
 function FileArticle (path, realPath) {
     var mimeType = getMimeType(path, realPath);
-    Article.call(this, path, mimeType);
+    var nameSpace
+    Article.call(this, url, mimeType, nameSpace);
     //~ log(this);
 };
 
@@ -673,6 +673,7 @@ FileArticle.prototype.setTitle = function (dom) {
 };
 
 FileArticle.prototype.alterLinks = function (dom) {
+
     var base = '/' + this.url;
     var nsBase = '/' + this.nameSpace + base;
     var baseSplit = nsBase.split('/');
@@ -815,14 +816,14 @@ FileArticle.prototype.load = function (callback) {
 
 function loadMetadata (callback) {
     async.each([
-            new Article ('Title', 'text/plain', argv.title, 'M'),
-            new Article ('Creator', 'text/plain', argv.creator, 'M'),
-            new Article ('Publisher', 'text/plain', argv.publisher, 'M'),
-            new Article ('Date', 'text/plain', new Date().toISOString().split('T')[0], 'M'),
-            new Article ('Description', 'text/plain', argv.description, 'M'),
-            new Article ('Language', 'text/plain', argv.language, 'M'),
-            new RedirectArticle ('favicon', '-', null, argv.favicon, 'I'),
-            new RedirectArticle ('mainPage', '-', null, mainPage.path, 'A')
+            new Article ('Title', 'text/plain', 'M', null, argv.title),
+            new Article ('Creator', 'text/plain', 'M', null, argv.creator),
+            new Article ('Publisher', 'text/plain', 'M', null, argv.publisher),
+            new Article ('Date', 'text/plain', 'M', null, new Date().toISOString().split('T')[0]),
+            new Article ('Description', 'text/plain', 'M', null, argv.description),
+            new Article ('Language', 'text/plain', 'M', null, argv.language),
+            new Redirect ('favicon', '-', null, argv.favicon, 'I'),
+            //~ new Redirect ('mainPage', '-', null, mainPage.path, 'A'),
         ],
         function (article, cb) {
             article.process(cb);
