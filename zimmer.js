@@ -69,6 +69,7 @@ var redirectCount = 0;
 var resolvedRedirectCount = 0;
 
 var mainPage;
+var deadEndTarget;
 
 var headerLength = 80;
 var header = {
@@ -463,6 +464,10 @@ function Article (path, mimeType, nameSpace, title, data) {
     this.revision = 0;
     this.articleId = ++ articleId;
 
+    if (path == mainPage.path) {
+        log('mainPage', mainPage.path, this);
+        mainPage.article = this;
+    }
     //~ log('Article', this);
 };
 
@@ -1317,11 +1322,32 @@ function getMimeTypes () {
     return buf;
 }
 
+function getMainPageIndex (callback) {
+    auxDb.get(`
+        SELECT
+            u.rowid - 1 AS idx,
+            u.articleId,
+            a.nsUrl
+        FROM urlSorted AS u
+        JOIN articles AS a
+        USING (articleId)
+        WHERE a.nsUrl = ?;
+    `,
+    [ mainPage.article.nsUrl() ],
+    function(err, row) {
+        log( 'getMainPageIndex', mainPage.article.nsUrl(), row );
+        mainPage.urlIndex = row.idx;
+        callback( err );
+    });
+}
+
 function getHeader () {
     header.articleCount = articleCount;
     header.clusterCount = ClusterBuilder.count;
-    log('Header', 'articleCount', articleCount, 'clusterCount', ClusterBuilder.count, 'mainPage', mainPage);
-    header.mainPage = mainPage.target || header.mainPage;
+    header.mainPage = mainPage.urlIndex || header.mainPage;
+
+    //~ log('Header', 'articleCount', articleCount, 'clusterCount', ClusterBuilder.count, 'mainPage', mainPage);
+    log('Header', header);
 
     var buf = Buffer.alloc(headerLength);
     buf.writeUIntLE(header.magicNumber,     0, 4);
