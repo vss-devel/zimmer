@@ -427,7 +427,12 @@ ClusterBuilder.storePointers = function (callback) {
         FROM clusters
         ORDER BY ordinal;
         `,
-        8, 'offset', 'clusterPtrPos', ClusterBuilder.count, 'ClusterBuilder', callback);
+        8, 'offset', ClusterBuilder.count, 'ClusterBuilder',
+        function ( err, offset ) {
+            header.clusterPtrPos = offset;
+            callback( err );
+        }
+        );
 }
 
 ClusterBuilder.finish = function (callback) {
@@ -1037,37 +1042,40 @@ function resolveRedirects (callback) {
     );
 };
 
-function saveIndex (query, byteLength, rowField, headerField, count, logInfo, callback) {
+function saveIndex (query, byteLength, rowField, count, logInfo, callback) {
     logInfo = logInfo || 'saveIndex';
     var i = 0;
     log(logInfo, 'start', count);
 
     var stmt = auxDb.prepare(query);
+    var startOffset;
 
     async.doDuring(
         stmt.get.bind(stmt),
         function (row, cb) {
-            log(logInfo, i, count, arguments);
-            i++;
             // null row gets srtipped from the arguments
             if (row && cb) {
+                log(logInfo, i, row);
+                i++;
                 var buf = Buffer.allocUnsafe(byteLength);
                 buf.writeUIntLE(row[rowField], 0, byteLength);
                 out.write(
                     buf,
                     function (err, offset) {
-                        log(logInfo, 'finished', headerField, offset);
-                        if (!header[headerField])
-                            header[headerField] = offset;
+                        //~ log(logInfo, 'finished', i, count, offset);
+                        if (! startOffset )
+                            startOffset = offset;
                         cb(err, true);
                     }
                 );
                 return;
             }
-            log(logInfo, 'done');
+            log(logInfo, 'done', i, count, startOffset);
             (cb || row)(null, false);
         },
-        callback
+        function (err) {
+            return callback( err, startOffset )
+        }
     );
 }
 
@@ -1093,7 +1101,12 @@ function storeUrlIndex (callback) {
         'USING (articleId) ' +
         'ORDER BY urlSorted.rowid; ' +
         '',
-        8, 'offset', 'urlPtrPos', articleCount, 'storeUrlIndex', callback);
+        8, 'offset', articleCount, 'storeUrlIndex',
+        function ( err, offset ) {
+            header.urlPtrPos = offset;
+            callback( err );
+        }
+        );
 }
 
 // Title Pointer List (titlePtrPos)
@@ -1115,7 +1128,12 @@ function storeTitleIndex (callback) {
         'USING (articleId) ' +
         'ORDER BY nsTitle; ' +
         '',
-        4, 'articleNumber', 'titlePtrPos', articleCount, 'storeTitleIndex', callback);
+        4, 'articleNumber', articleCount, 'storeTitleIndex',
+        function ( err, offset ) {
+            header.titlePtrPos = offset;
+            callback( err );
+        }
+        );
 }
 
 function loadFiles(callback) {
