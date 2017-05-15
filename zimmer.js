@@ -64,6 +64,7 @@ var auxDb;
 var dirQueue;
 
 var articleCount = 0;
+var articleId = 0;
 var redirectCount = 0;
 var resolvedRedirectCount = 0;
 
@@ -459,6 +460,8 @@ function Article (path, mimeType, nameSpace, title, data) {
     this.data = data;
     this.ordinal = null;
     this.dirEntry = null;
+    this.revision = 0;
+    this.articleId = ++ articleId;
 
     //~ log('Article', this);
 };
@@ -466,7 +469,7 @@ function Article (path, mimeType, nameSpace, title, data) {
 Article.prototype.isCompressible = function () {
     var mimeType = this.mimeType;
     //~ log('isCompressible', this);
-    if (this.data.length == 0)
+    if (this.data == null || this.data.length == 0)
         return false;
     if (!mimeType) {
         console.trace('Article.prototype.isCompressible mimeType', mimeType, this);
@@ -543,7 +546,6 @@ Article.prototype.storeDirEntry = function (clusterNum, blobNum, callback) {
         Buffer.concat([buf, urlBuf, titleBuf]),
         function (err, offset) {
             this.dirEntry = offset;
-            log('storeArticleEntry done', err, offset, buf.length, this.url);
             callback(err);
         }.bind(this)
     );
@@ -560,22 +562,31 @@ Article.prototype.indexDirEntry = function (callback) {
     );
 };
 
+Article.prototype.nsUrl = function (callback) {
+    return this.nameSpace + this.url;
+};
+
+Article.prototype.nsTitle = function (callback) {
+    return this.nameSpace + (this.title || this.url);
+};
+
 Article.prototype.toArticleIndex = function (callback) {
     if (!this.url) {
         console.trace('Article no url', this);
         process.exit(1);
     }
-    this.articleId = ++ articleCount;
+
+    articleCount++;
+
     auxDb.serialize( function () {
         if (this.dirEntry)
             this.indexDirEntry();
         auxDb.run(
-            'INSERT INTO articles (articleId, nsUrl, nsTitle, redirect) VALUES (?,?,?,?)',
+            'INSERT INTO articles (articleId, nsUrl, nsTitle) VALUES (?,?,?)',
             [
                 this.articleId,
-                this.nameSpace + this.url,
-                this.nameSpace + (this.title || this.url),
-                this.redirect
+                this.nsUrl(),
+                this.nsTitle()
             ],
             callback
         );
@@ -852,10 +863,11 @@ File.prototype.load = function (callback) {
                 var dom = this.parse();
                 if (dom) {
                     this.setTitle (dom);
-                    var target = this.getRedirect (dom);
-                    if (target) { // convert to redirect
+                    var redirect = this.getRedirect (dom);
+                    if (redirect) { // convert to redirect
                         this.data = null;
-                        var redirect = new RedirectArticle (this.url, this.nameSpace, this.title, target);
+                        this.redirect = redirect;
+                        var redirect = new Redirect (this);
                         return redirect.process(cb);
                     }
                     if (this.alterLinks (dom))
@@ -885,6 +897,7 @@ File.prototype.load = function (callback) {
 // Counter         no      Number of non-redirect entries per mime-type    image/jpeg=5;image/gif=3;image/png=2;...
 
 function loadMetadata (callback) {
+    deadEndTarget = new Linktarget ('deadend', '-');
     async.each([
             new Article ('Title', 'text/plain', 'M', null, argv.title),
             new Article ('Creator', 'text/plain', 'M', null, argv.creator),
@@ -894,6 +907,7 @@ function loadMetadata (callback) {
             new Article ('Language', 'text/plain', 'M', null, argv.language),
             new Redirect ('favicon', '-', null, argv.favicon, 'I'),
             //~ new Redirect ('mainPage', '-', null, mainPage.path, 'A'),
+            deadEndTarget
         ],
         function (article, cb) {
             article.process(cb);
@@ -923,7 +937,10 @@ function createAuxIndex(callback) {
                     //~ 'ordinal INTEGER,' +
                     //~ 'dirEntry INTEGER,' +
                     'nsUrl TEXT,' +
-                    'nsTitle TEXT,' +
+                    'nsTitle TEXT' +
+                    ');' +
+                'CREATE TABLE redirects (' +
+                    'articleId INTEGER PRIMARY KEY,' +
                     'redirect TEXT ' +
                     ');' +
                 'CREATE TABLE dirEntries (' +
@@ -941,19 +958,20 @@ function createAuxIndex(callback) {
 }
 
 function sortArticles (callback) {
-    auxDb.exec(
-        'CREATE INDEX articleNsUrl ON articles (nsUrl);' +
+    auxDb.exec(`
+        CREATE INDEX articleNsUrl ON articles (nsUrl);
 
-        'CREATE TABLE urlSorted AS ' +
-            'SELECT ' +
-                'articleId ' +
-            'FROM articles ' +
-            'ORDER BY nsUrl;' +
+        CREATE TABLE urlSorted AS
+            SELECT
+                articleId,
+                nsUrl
+            FROM articles
+            ORDER BY nsUrl;
 
-        'CREATE INDEX urlSortedArticleId ON urlSorted (articleId);' +
+        CREATE INDEX urlSortedArticleId ON urlSorted (articleId);
 
-        'CREATE INDEX articleNsTitle ON articles (nsTitle);' +
-        '',
+        CREATE INDEX articleNsTitle ON articles (nsTitle);
+        `,
         callback
     );
 }
@@ -1009,28 +1027,47 @@ function loadRedirects (callback) {
 };
 
 function resolveRedirects (callback) {
+    var stmt = auxDb.prepare(`
+        SELECT
+            src.articleId AS articleId,
+            src.nsUrl AS nsUrl,
+            src.nsTitle AS nsTitle,
+            redirect,
+            targetUrl,
+            targetIdx
+        FROM (
+            SELECT
+                *,
+                u.rowid - 1 AS  targetIdx
+            FROM (
+                SELECT
+                    redirects.articleId,
+                    redirect,
+                    d.nsUrl AS targetUrl,
+                    COALESCE ( d.articleId, (
+                        SELECT articleId FROM articles WHERE nsUrl = "${deadEndTarget.nsUrl()}")
+                    ) AS targetId
+                    -- d.articleId AS targetId
+                FROM redirects
+                LEFT OUTER JOIN articles AS d
+                ON redirect = targetUrl
+            ) AS r
+            LEFT OUTER JOIN urlSorted AS u
+            ON r.targetId = u.articleId
+        ) AS dst
+        JOIN articles AS src
+        USING (articleId)
+        -- WHERE targetIdx IS NULL
+        ;`);
 
-    var stmt = auxDb.prepare(
-        'SELECT ' +
-            'src.articleId, ' +
-            'src.nsUrl, ' +
-            'src.nsTitle, ' +
-            //~ 'src.redirect, ' +
-            'u.rowid - 1 AS target ' +
-        'FROM articles AS src ' +
-        'JOIN articles AS dst ' +
-        'JOIN urlSorted AS u ' +
-        'ON src.redirect = dst.nsUrl AND u.articleId = dst.articleId ' +
-        'WHERE src.redirect IS NOT NULL;'
-    );
     function consumer (row, cb) {
         var nameSpace = row.nsUrl[0];
         var url = row.nsUrl.substr(1);
         var title = (row.nsTitle == row.nsUrl) ? '' : row.nsTitle.substr(1);
-        if (url == 'mainPage')
-            mainPage.target = row.target;
+        //~ if (url == 'mainPage')
+            //~ mainPage.target = row.targetIdx;
 
-        new ResolvedRedirect (row.articleId, nameSpace, url, title, row.target)
+        new ResolvedRedirect (row.articleId, nameSpace, url, title, row.targetIdx)
             .process(cb);
     }
     var queue = new CallbackQueue(consumer, 'resolveRedirects');
@@ -1093,14 +1130,17 @@ function saveIndex (query, byteLength, rowField, count, logInfo, callback) {
 // ...     integer     ...     8   ...
 
 function storeUrlIndex (callback) {
-    saveIndex (
-        'SELECT ' +
-            'offset ' +
-        'FROM dirEntries ' +
-        'JOIN urlSorted ' +
-        'USING (articleId) ' +
-        'ORDER BY urlSorted.rowid; ' +
-        '',
+    saveIndex (`
+        SELECT
+            urlSorted.rowid,
+            articleId,
+            nsUrl,
+            offset
+        FROM urlSorted
+        LEFT OUTER JOIN dirEntries
+        USING (articleId)
+        ORDER BY urlSorted.rowid;
+        `,
         8, 'offset', articleCount, 'storeUrlIndex',
         function ( err, offset ) {
             header.urlPtrPos = offset;
@@ -1328,10 +1368,10 @@ function calculateFileHash (callback) {
 
 function finalise (callback) {
     async.series([
-            postProcess,
             function (cb) { // close the output stream
                 header.checksumPos = out.close(cb);
             },
+            getMainPageIndex,
             stroreHeader,
             calculateFileHash
             ],
@@ -1346,6 +1386,7 @@ function core () {
             //~ loadMetadata,
             //~ loadFiles,
             //~ loadRedirects,
+            postProcess,
             finalise
         ],
         function (err) {
