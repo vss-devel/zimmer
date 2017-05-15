@@ -71,6 +71,19 @@ var resolvedRedirectCount = 0;
 var mainPage;
 var deadEndTarget;
 
+// -    layout, eg. the LayoutPage, CSS, favicon.png (48x48), JavaScript and images not related to the articles
+// A    articles - see Article Format
+// B    article meta data - see Article Format
+// I    images, files - see Image Handling
+// J    images, text - see Image Handling
+// M    ZIM metadata - see Metadata
+// U    categories, text - see Category Handling
+// V    categories, article list - see Category Handling
+// W    categories per article, category list - see Category Handling
+// X    fulltext index - see ZIM Index Format
+
+var zimNameSpaces = '-ABIJMUVWX';
+
 var headerLength = 80;
 var header = {
     magicNumber: 72173914,  //    integer      0  4   Magic number to recognise the file format, must be 72173914
@@ -726,11 +739,27 @@ function File (path, realPath) {
     var url = path
     var mimeType = getMimeType(path, realPath);
     var nameSpace
+    var pathHasNs = this.testNs(path)
+    if ( pathHasNs ) {
+        nameSpace = pathHasNs[0]
+        path = realPath || path
+        url = pathHasNs.slice(1).join('/')
+    }
     Article.call(this, url, mimeType, nameSpace);
+    this.path = path;
+    this.pathHasNs = pathHasNs;
     //~ log(this);
 };
 
 util.inherits (File, Article);
+
+File.prototype.testNs = function (path) {
+    var spath = path.split('/')
+    var dir1 = spath[0]
+    if ( dir1.length == 1 && zimNameSpaces.includes( dir1 ))
+        return spath
+    return false
+}
 
 File.prototype.parse = function () {
     if (this.mimeType != 'text/html' ) {
@@ -851,7 +880,7 @@ File.prototype.getRedirect = function (dom) {
 
 File.prototype.load = function (callback) {
     async.waterfall([
-            async.apply(fs.readFile, fullPath(this.url)),
+            async.apply(fs.readFile, fullPath(this.path)),
 
             function inflateData (data, cb) {
                 if (argv.inflateHtml && this.mimeType == 'text/html')
@@ -883,7 +912,7 @@ File.prototype.load = function (callback) {
                         var redirect = new Redirect (this);
                         return redirect.process(cb);
                     }
-                    if (this.alterLinks (dom))
+                    if ( !this.pathHasNs && this.alterLinks (dom) )
                         this.data = Buffer.from(domutils.getOuterHTML(dom));
                 }
                 cb();
