@@ -44,6 +44,7 @@ var url = require('url');
 var uuid = require("uuid");
 var crypto = require("crypto");
 var csvParse = require('csv-parse');
+var csvParseSync = require('csv-parse/lib/sync');
 var zlib = require('zlib');
 var sqlite3 = require('sqlite3').verbose();
 var mimeDb = require( 'mime-db' );
@@ -68,6 +69,8 @@ var articleId = 0;
 var redirectCount = 0;
 var resolvedRedirectCount = 0;
 
+var zimFormated = false;
+
 var mainPage;
 var deadEndTarget;
 
@@ -81,8 +84,6 @@ var deadEndTarget;
 // V    categories, article list - see Category Handling
 // W    categories per article, category list - see Category Handling
 // X    fulltext index - see ZIM Index Format
-
-var zimNameSpaces = '-ABIJMUVWX';
 
 var headerLength = 80;
 var header = {
@@ -477,10 +478,10 @@ function Article (path, mimeType, nameSpace, title, data) {
     this.revision = 0;
     this.articleId = ++ articleId;
 
-    if (path == mainPage.path) {
-        log('mainPage', mainPage.path, this);
-        mainPage.article = this;
-    }
+    //~ if (this.title == mainPage.title) {
+        //~ log('mainPage', mainPage.title, this);
+        //~ mainPage.article = this;
+    //~ }
     //~ log('Article', this);
 };
 
@@ -739,27 +740,17 @@ function File (path, realPath) {
     var url = path
     var mimeType = getMimeType(path, realPath);
     var nameSpace
-    var pathHasNs = this.testNs(path)
-    if ( pathHasNs ) {
-        nameSpace = pathHasNs[0]
+    if ( zimFormated ) {
+        nameSpace = path[0]
         path = realPath || path
-        url = pathHasNs.slice(1).join('/')
+        url = path.slice(2)
     }
     Article.call(this, url, mimeType, nameSpace);
     this.path = path;
-    this.pathHasNs = pathHasNs;
     //~ log(this);
 };
 
 util.inherits (File, Article);
-
-File.prototype.testNs = function (path) {
-    var spath = path.split('/')
-    var dir1 = spath[0]
-    if ( dir1.length == 1 && zimNameSpaces.includes( dir1 ))
-        return spath
-    return false
-}
 
 File.prototype.parse = function () {
     if (this.mimeType != 'text/html' ) {
@@ -912,7 +903,7 @@ File.prototype.load = function (callback) {
                         var redirect = new Redirect (this);
                         return redirect.process(cb);
                     }
-                    if ( !this.pathHasNs && this.alterLinks (dom) )
+                    if ( ! zimFormated && this.alterLinks (dom) )
                         this.data = Buffer.from(domutils.getOuterHTML(dom));
                 }
                 cb();
@@ -939,19 +930,38 @@ File.prototype.load = function (callback) {
 // Counter         no      Number of non-redirect entries per mime-type    image/jpeg=5;image/gif=3;image/png=2;...
 
 function loadMetadata (callback) {
-    deadEndTarget = new Linktarget ('deadend', '-');
-    async.each([
-            new Article ('Title', 'text/plain', 'M', null, argv.title),
-            new Article ('Creator', 'text/plain', 'M', null, argv.creator),
-            new Article ('Publisher', 'text/plain', 'M', null, argv.publisher),
-            new Article ('Date', 'text/plain', 'M', null, new Date().toISOString().split('T')[0]),
-            new Article ('Description', 'text/plain', 'M', null, argv.description),
-            new Article ('Language', 'text/plain', 'M', null, argv.language),
-            new Redirect ('favicon', '-', null, argv.favicon, 'I'),
-            //~ new Redirect ('mainPage', '-', null, mainPage.path, 'A'),
-            deadEndTarget
-        ],
-        function (article, cb) {
+    var metadata = zimFormated.metadata || [
+        ['Title', argv.title],
+        ['Creator', argv.creator],
+        ['Publisher', argv.publisher],
+        ['Date', new Date().toISOString().split('T')[0]],
+        ['Description', argv.description],
+        ['Language', argv.language],
+        ['logo', argv.favicon],
+        ['mainpage', argv.welcome],
+    ]
+    metadata.push(['deadend', null])
+
+    async.each(
+        metadata,
+        function (item, cb) {
+            var article
+            var name = item[0]
+            var val = item[1]
+            switch (name) {
+                case 'mainpage':
+                    article  = mainPage = new Redirect ('mainpage', '-', null, val, 'A')
+                    break
+                case 'logo':
+                    article  = new Redirect ('favicon', '-', null, val, 'I')
+                    break
+                case 'deadend':
+                    article  = deadEndTarget = new Linktarget ('deadend', '-')
+                    break
+                default:
+                    article = new Article (name, 'text/plain', 'M', null, val)
+            }
+
             article.process(cb);
         },
         callback
@@ -1019,10 +1029,15 @@ function sortArticles (callback) {
 }
 
 function loadRedirects (callback) {
-    if (!argv.redirects) {
+    var redirectsFile
+    if (zimFormated)
+        redirectsFile = zimFormated.redirects
+    else if (argv.redirects)
+        redirectsFile = expandHomeDir(argv.redirects)
+    else
         return callback();
-    }
-    var inp = fs.createReadStream(expandHomeDir(argv.redirects));
+
+    var inp = fs.createReadStream(redirectsFile);
     var finished = false;
 
     var parser = csvParse(
@@ -1106,8 +1121,8 @@ function resolveRedirects (callback) {
         var nameSpace = row.nsUrl[0];
         var url = row.nsUrl.substr(1);
         var title = (row.nsTitle == row.nsUrl) ? '' : row.nsTitle.substr(1);
-        //~ if (url == 'mainPage')
-            //~ mainPage.target = row.targetIdx;
+        if (url == 'mainpage')
+            mainPage.target = row.targetIdx;
 
         new ResolvedRedirect (row.articleId, nameSpace, url, title, row.targetIdx)
             .process(cb);
@@ -1240,7 +1255,10 @@ function scanDirectory(path, callback) {
                     dirEntries,
                     Math.round(cpuCount * 2),
                     function (fname, cb) {
-                        parseDirEntry(osPath.join(path, fname), null, cb);
+                        if (fname == 'metadata.csv' || fname == 'redirects.csv')
+                            cb()
+                        else
+                            parseDirEntry(osPath.join(path, fname), null, cb);
                     },
                     cbk
                 );
@@ -1281,6 +1299,20 @@ function initialise (callback) {
     var stat = fs.statSync(srcPath); // check source
     if (!stat.isDirectory()) {
         return callback(new Error(srcPath + ' is not a directory'));
+    }
+
+    var mtdPath = osPath.join( srcPath, 'metadata.csv')
+    var mtdTxt = null
+    try {
+        mtdTxt = fs.readFileSync( mtdPath, 'utf8' )
+    } catch (err) {
+    }
+    if (mtdTxt) {
+        var mtdArr = csvParseSync( mtdTxt, { delimiter: '\t' });
+        zimFormated = {
+            metadata: mtdArr,
+            redirects: osPath.join( srcPath, 'redirects.csv')
+        }
     }
 
     out = new Writer(outPath); // create output file
@@ -1359,29 +1391,29 @@ function getMimeTypes () {
     return buf;
 }
 
-function getMainPageIndex (callback) {
-    auxDb.get(`
-        SELECT
-            u.rowid - 1 AS idx,
-            u.articleId,
-            a.nsUrl
-        FROM urlSorted AS u
-        JOIN articles AS a
-        USING (articleId)
-        WHERE a.nsUrl = ?;
-    `,
-    [ mainPage.article.nsUrl() ],
-    function(err, row) {
-        log( 'getMainPageIndex', mainPage.article.nsUrl(), row );
-        mainPage.urlIndex = row.idx;
-        callback( err );
-    });
-}
+//~ function getMainPageIndex (callback) {
+    //~ auxDb.get(`
+        //~ SELECT
+            //~ u.rowid - 1 AS idx,
+            //~ u.articleId,
+            //~ a.nsUrl
+        //~ FROM urlSorted AS u
+        //~ JOIN articles AS a
+        //~ USING (articleId)
+        //~ WHERE a.nsUrl = ?;
+    //~ `,
+    //~ [ mainPage.article.nsUrl() ],
+    //~ function(err, row) {
+        //~ log( 'getMainPageIndex', mainPage.article.nsUrl(), row );
+        //~ mainPage.urlIndex = row.idx;
+        //~ callback( err );
+    //~ });
+//~ }
 
 function getHeader () {
     header.articleCount = articleCount;
     header.clusterCount = ClusterBuilder.count;
-    header.mainPage = mainPage.urlIndex || header.mainPage;
+    header.mainPage = mainPage.target || header.mainPage;
 
     //~ log('Header', 'articleCount', articleCount, 'clusterCount', ClusterBuilder.count, 'mainPage', mainPage);
     log('Header', header);
@@ -1434,7 +1466,7 @@ function finalise (callback) {
             function (cb) { // close the output stream
                 header.checksumPos = out.close(cb);
             },
-            getMainPageIndex,
+            //~ getMainPageIndex,
             stroreHeader,
             calculateFileHash
             ],
@@ -1519,16 +1551,16 @@ function main () {
         outPath = expandHomeDir(pargs[1])
     else {
         var parsed = osPath.parse(srcPath);
-        outPath = parsed.name + '.zim';
+        outPath = parsed.base + '.zim';
     }
 
     if (argv.minChunkSize) {
         Cluster.sizeThreshold = argv.minChunkSize * 1024;
     }
 
-    mainPage = {
-        path: argv.welcome
-    };
+    //~ mainPage = {
+        //~ title: argv.welcome
+    //~ };
 
     core ();
 }
