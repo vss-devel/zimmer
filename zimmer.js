@@ -29,50 +29,54 @@ SOFTWARE.
 
 */
 
-var os = require('os');
-var process = require('process');
-var yargs = require( 'yargs' );
-var util = require('util');
-var fs = require( 'fs' );
-var async = require( 'async' );
-var osPath = require( 'path' );
-var expandHomeDir = require( 'expand-home-dir' );
-var lzma = require('lzma-native');
-var htmlparser = require("htmlparser2");
-var domutils = require("domutils");
-var url = require('url');
-var uuid = require("uuid");
-var crypto = require("crypto");
-var csvParse = require('csv-parse');
-var csvParseSync = require('csv-parse/lib/sync');
-var zlib = require('zlib');
-var sqlite3 = require('sqlite3').verbose();
-var mimeDb = require( 'mime-db' );
-var mime = require( 'mime-types' );
-var magic = require('mmmagic');
+const Promise = require( 'bluebird' )
+const os = require( 'os' )
+const process = require( 'process' )
+const yargs = require( 'yargs' )
+const util = require( 'util' )
+const fs = require( 'fs-extra' )
+const osPath = require( 'path' )
+const expandHomeDir = require( 'expand-home-dir' )
+const lzma = require( 'lzma-native' )
+const cheerio = require('cheerio')
 
-var mimeMagic = new magic.Magic(magic.MAGIC_MIME_TYPE);
+const url = require( 'url' )
+const uuid = require( "uuid" )
+const crypto = require( "crypto" )
+const csvParse = require( 'csv-parse' )
+const csvParseSync = require( 'csv-parse/lib/sync' )
+const zlib = require( 'mz/zlib' )
+const sqlite = require( 'sqlite' )
+const mimeDb = require( 'mime-db' )
+const mime = require( 'mime-types' )
+const magic = require( 'mmmagic' )
+const sharp = require( 'sharp' )
 
-var argv;
+const genericPool = require( 'generic-pool' )
+const mozjpeg = require( 'mozjpeg' )
 
-var cpuCount = os.cpus().length;
+const mimeMagic = new magic.Magic( magic.MAGIC_MIME_TYPE )
 
-var srcPath;
-var outPath;
-var out; // output file writer
+const cpuCount = os.cpus().length
 
-var auxDb;
-var dirQueue;
+var argv
 
-var articleCount = 0;
-var articleId = 0;
-var redirectCount = 0;
-var resolvedRedirectCount = 0;
+var srcPath
+var outPath
+var out // output file writer
 
-var zimFormated = false;
+var zIndex
+var dirQueue
 
-var mainPage;
-var deadEndTarget;
+var articleCount = 0
+var articleId = 0
+var redirectCount = 0
+var resolvedRedirectCount = 0
+
+var zimFormated = false
+
+var mainPage
+var deadEndTarget
 
 // -    layout, eg. the LayoutPage, CSS, favicon.png (48x48), JavaScript and images not related to the articles
 // A    articles - see Article Format
@@ -85,7 +89,7 @@ var deadEndTarget;
 // W    categories per article, category list - see Category Handling
 // X    fulltext index - see ZIM Index Format
 
-var headerLength = 80;
+var headerLength = 80
 var header = {
     magicNumber: 72173914,  //    integer      0  4   Magic number to recognise the file format, must be 72173914
     version: 5,             //    integer      4  4   ZIM=5, bytes 1-2: major, bytes 3-4: minor version of the ZIM file format
@@ -100,817 +104,739 @@ var header = {
     layoutPage: 0xffffffff, //    integer     68  4   layout page or 0xffffffffff if no layout page
     checksumPos: null,      //    integer     72  8   pointer to the md5checksum of this file without the checksum itself. This points always 16 bytes before the end of the file.
     //~ geoIndexPos: null,  //    integer     80  8   pointer to the geo index (optional). Present if mimeListPos is at least 80.
-};
-
-function fullPath (path) {
-    return osPath.join(srcPath, path);
 }
 
-function getMimeType (path, realPath) {
-    var mType = mime.lookup(realPath || path);
-    if (mType == null) {
-        console.error('No mime type found', path, realPath);
+function fullPath ( path ) {
+    return osPath.join( srcPath, path )
+}
+
+function getMimeType ( path, realPath ) {
+    var mType = mime.lookup( realPath || path )
+    if ( mType == null ) {
+        console.error( 'No mime type found', path, realPath )
     }
-    return mType;
-};
+    return mType
+}
 
-var REDIRECT_MIME = '@REDIRECT@';
-var LINKTARGET_MIME = '@LINKTARGET@';
-var DELETEDENTRY_MIME = '@DELETEDENTRY@';
+var REDIRECT_MIME = '@REDIRECT@'
+var LINKTARGET_MIME = '@LINKTARGET@'
+var DELETEDENTRY_MIME = '@DELETEDENTRY@'
 
-var mimeTypeList = [];
-var mimeTypeCounter = [];
+var mimeTypeList = []
+var mimeTypeCounter = []
 
-var maxMimeLength = 512;
+var maxMimeLength = 512
 
-function mimeTypeIndex (mimeType) {
-    if (mimeType == null) {
-        console.trace('No mime type found', mimeType);
-        process.exit(1);
+function mimeTypeIndex ( mimeType ) {
+    if ( mimeType == null ) {
+        console.trace( 'No mime type found', mimeType )
+        process.exit( 1 )
     }
-    if (mimeType == REDIRECT_MIME)
-        return 0xffff;
-    if (mimeType == LINKTARGET_MIME)
-        return 0xfffe;
-    if (mimeType == DELETEDENTRY_MIME)
-        return 0xfffd;
-    var idx = mimeTypeList.indexOf(mimeType);
-    if (idx != -1) {
-        mimeTypeCounter[idx]++;
+    if ( mimeType == REDIRECT_MIME )
+        return 0xffff
+    if ( mimeType == LINKTARGET_MIME )
+        return 0xfffe
+    if ( mimeType == DELETEDENTRY_MIME )
+        return 0xfffd
+    var idx = mimeTypeList.indexOf( mimeType )
+    if ( idx != -1 ) {
+        mimeTypeCounter[ idx ]++
     } else {
-        idx = mimeTypeList.length;
-        mimeTypeList.push(mimeType);
-        mimeTypeCounter.push(1);
+        idx = mimeTypeList.length
+        mimeTypeList.push( mimeType )
+        mimeTypeCounter.push( 1 )
     }
-    return idx;
-};
+    return idx
+}
 
-function getNameSpace(mimeType) {
-    if (argv.uniqueNamespace)
-        return 'A';
-    if (!mimeType)
-        return null;
-    if (mimeType == 'text/html')
+function getNameSpace( mimeType ) {
+    if ( argv.uniqueNamespace )
         return 'A'
-    else if (mimeType.split('/')[0] == 'image')
-        return 'I';
-    return '-';
-};
-
-function log (arg) {
-    argv && argv.verbose && console.log.apply(this, arguments);
+    if ( !mimeType )
+        return null
+    if ( mimeType == 'text/html' )
+        return 'A'
+    else if ( mimeType.split( '/' )[ 0 ] == 'image' )
+        return 'I'
+    return '-'
 }
 
-function writeUIntLE(buf, number, offset, byteLength) {
-    offset = offset || 0;
-    if (typeof number == 'string') {
-        byteLength = buf.write(number, offset);
-        return offset + byteLength;
+function log ( arg ) {
+    argv && argv.verbose && console.log.apply( this, arguments )
+}
+
+function writeUIntLE( buf, number, offset, byteLength ) {
+    offset = offset || 0
+    if ( typeof number == 'string' ) {
+        byteLength = buf.write( number, offset )
+        return offset + byteLength
     }
-    if (byteLength == 8) {
-        var low = number & 0xffffffff;
-        var high = (number - low) / 0x100000000 - (low < 0 ? 1 : 0);
-        buf.writeInt32LE(low, offset);
-        buf.writeUInt32LE(high, offset + 4);
-        return offset + byteLength;
+    if ( byteLength == 8 ) {
+        var low = number & 0xffffffff
+        var high = ( number - low ) / 0x100000000 - ( low < 0 ? 1 : 0 )
+        buf.writeInt32LE( low, offset )
+        buf.writeUInt32LE( high, offset + 4 )
+        return offset + byteLength
     } else {
-        return buf.writeIntLE(buf, number, offset, byteLength);
+        return buf.writeIntLE( buf, number, offset, byteLength )
     }
 }
 
-//
-// CallbackQueue
-//
-function CallbackQueue (consumer, logIdent) {
-    this.logIdent = logIdent;
-    this.finished = false;
-    this.paused = false;
-    this.resumeCb = [];
-    this.finalCb = null;
+function spawn ( command, args, input ) { // after https://github.com/panosoft/spawn-promise
 
-    this.queue = async.queue(consumer);
-    this.queue.concurrency = cpuCount;
-    this.queue.buffer = cpuCount;
+    var child = child_process.spawn( command, args )
 
-    this.queue.drain = this.resume.bind(this, 'drain');
-    this.queue.unsaturated = this.resume.bind(this, 'unsaturated');
-    this.queue.saturated = function () {
-        log(logIdent, 'saturated', this.queue.length(), this.queue.running(), this.queue.buffer);
-        this.paused = true;
-    }.bind(this);
-};
+    // Capture errors
+    var errors = {}
+    child.on( 'error', error => errors.spawn = error )
+    child.stdin.on( 'error', error => errors.stdin = error )
+    child.stdout.on( 'error', error => errors.stdout = error )
+    child.stderr.setEncoding( 'utf8' )
+    child.stderr.on( 'error', error => errors.stderr = error )
+    child.stderr.on( 'data', data => {
+        if ( !errors.process ) errors.process = ''
+        errors.process += data
+    })
 
-CallbackQueue.prototype.resume = function (logInfo) {
-    log(this.logIdent, logInfo, this.finished, this.queue.length(), this.queue.running(), this.queue.buffer, this.finalCb);
-    this.paused = false;
-    var cb;
-    while (cb = this.resumeCb.shift())
-        async.setImmediate(cb);
-    if (this.finished && this.finalCb && this.queue.idle()) {
-        async.setImmediate(this.finalCb);
-        this.finalCb = null;
-    }
-};
+    // Capture output
+    var buffers = []
+    child.stdout.on( 'data', data => buffers.push( data ))
 
-CallbackQueue.prototype.push = function (data, callback) {
-    // NB: undefined data may get srtipped from the arguments
-    var logIdent = this.logIdent;
-    var queue = this.queue;
-    log(logIdent, queue.length(), queue.running(), queue.buffer, arguments);
-    var cb;
-    if (data && callback) {
-        queue.push(data);
-        cb = async.apply(callback, null, true);
-        if (this.paused) {
-            this.resumeCb.push(cb);
-        } else {
-            async.setImmediate(cb);
-        }
-    } else {
-        this.finished = true;
-        var cb = function () {
-            log(logIdent, 'finished');
-            (callback || data) (null, false);
-        };
-        this.finalCb = cb;
-        this.resume('finishing');
-    }
-};
+    // input
+    child.stdin.end( input )
+
+    // Run
+    return new Promise( resolve => {
+        child.on( 'close', ( code, signal ) => resolve( code ))
+        child.stdin.end( input )
+    })
+    .then( exitCode => {
+        if ( exitCode !== 0 )
+            return Promise.reject( new Error( `Command failed: ${exitCode}` ))
+
+        if ( Object.keys( errors ).length !== 0 )
+            return Promise.reject( new Error( JSON.stringify( errors )))
+
+        return Buffer.concat( buffers )
+    })
+}
 
 //
 // Writer
 //
+class Writer {
+    constructor ( path ) {
+        this.position = 0
 
-function Writer (path, callback) {
-    this.position = 0;
+        this.stream = fs.createWriteStream( path, { highWaterMark: 1024*1024*10 })
+        this.stream.once( 'open', fd => { })
+        this.stream.on( 'error', err => {
+            console.trace( 'Writer error', this.stream.path, err )
+            process.exit( 1 )
+        })
 
-    this.queue = async.queue(this.writer.bind(this));
-
-    this.stream = fs.createWriteStream(path, {highWaterMark: 1024*1024*10});
-    this.stream.once('open', function (fd) {
-        callback && callback(null, fd);
-    });
-    this.stream.on('error', this.error.bind(this));
-};
-
-Writer.prototype.error = function (err) {
-    console.trace('Writer error', this.stream.path, err);
-    process.exit(1);
-};
-
-Writer.prototype.writer = function (data, callback) {
-    var offset = this.position;
-
-    var saturated = !this.stream.write(data);
-    this.position += data.length;
-    if (!callback)
-        return
-    var cb = async.apply(callback, null, offset);
-    if (saturated) {
-        this.stream.once('drain', cb);
-    } else {
-        async.setImmediate(cb);
-    }
-};
-
-Writer.prototype.write = function (request,  callback) {
-    this.queue.push(request,  callback);
-};
-
-Writer.prototype.close = function (callback) {
-    var onclose = function () {
-        log(this.stream.path, 'closed', this.position, this.stream.bytesWritten);
-        callback(null, this.position);
-    }.bind(this);
-
-    this.stream.once('close', onclose);
-
-    var close = function () {
-        log('closing', this.stream.path);
-        this.stream.end();
-    }.bind(this);
-
-    if (this.queue.idle())
-        async.setImmediate(close);
-    else
-        this.queue.drain = close;
-
-    return this.position;
-};
-
-//
-// Cluster
-//
-var Cluster = function (ordinal, compressible) {
-    this.ordinal = ordinal;
-    this.compressible = compressible;
-    this.blobs = [];
-    this.size = 0;
-}
-
-// Cluster.sizeThreshold = 8 * 1024 * 1024;
-Cluster.sizeThreshold = 4 * 1024 * 1024;
-// Cluster.sizeThreshold = 2 * 1024 * 1024;
-// Cluster.sizeThreshold = 2 * 1024 ;
-
-Cluster.prototype.append = function (data) {
-    var ordinal = this.ordinal;
-    var blobNum = this.blobs.length;
-    if (blobNum != 0 && this.size + data.length > Cluster.sizeThreshold)
-        return false;
-
-    this.blobs.push(data);
-    this.size += data.length;
-    return blobNum;
-};
-
-// Cluster
-// Field Name          Type    Offset  Length  Description
-// compression type    integer     0   1   0: default (no compression), 1: none (inherited from Zeno), 4: LZMA2 compressed
-// The following data bytes have to be uncompressed!
-// <1st Blob>          integer     1   4   offset to the <1st Blob>
-// <2nd Blob>          integer     5   4   offset to the <2nd Blob>
-// <nth Blob>          integer     (n-1)*4+1   4   offset to the <nth Blob>
-// ...                 integer     ...     4   ...
-// <last blob / end>   integer     n/a     4   offset to the end of the cluster
-// <1st Blob>          data        n/a     n/a     data of the <1st Blob>
-// <2nd Blob>          data        n/a     n/a     data of the <2nd Blob>
-// ...                 data        ...     n/a     ...
-
-Cluster.prototype.save = function (callback) {
-    //~ log('Cluster.prototype.save', this.compressible, this.blobs);
-
-    var nBlobs = this.blobs.length;
-    if (nBlobs == 0)
-        return async.setImmediate(callback);
-
-    // generate blob offsets
-    var offsets = Buffer.allocUnsafe((nBlobs + 1) * 4);
-    var blobOffset = offsets.length;
-    for (var i=0; i < nBlobs; i++) {
-        offsets.writeUIntLE(blobOffset, i * 4, 4);
-        blobOffset += this.blobs[i].length;
-    }
-    //~ log(this.ordinal,'generate blob offsets', nBlobs, offsets.length, i, blobOffset);
-    offsets.writeUIntLE(blobOffset, i * 4, 4); // final offset
-
-    // join offsets and article data
-    this.blobs.unshift(offsets);
-    var buf = Buffer.concat(this.blobs);
-    var rawSize = buf.length;
-
-    var compression = this.compressible ? 4 : 0;
-    var ordinal = this.ordinal;
-
-    async.waterfall(
-        [
-            function (cb) { // compress cluster
-                if (! compression)
-                    return cb(null, buf)
-                else
-                    lzma.compress(buf, 3 | lzma.PRESET_EXTREME, function(result) {
-                    //~ lzma.compress(buf, 3, function(result) {
-                        log('Cluster lzma compressed');
-                        return cb(null, result);
-                    });
+        this.queue = genericPool.createPool(
+            {
+                create () { return Promise.resolve( Symbol( )) },
+                destroy ( resource ) { return Promise.resolve() },
             },
-            function (data, cb) { // write cluster
-                log('Cluster write', ordinal, compression); //, Buffer.concat([Buffer.from([compression]), data]));
-                out.write( Buffer.concat([Buffer.from([compression]), data]), cb);
-            },
-            function (offset, cb) {
-                log('Cluster saved', ordinal, offset);
-                auxDb.run(
-                    'INSERT INTO clusters (ordinal, offset) VALUES (?,?)',
-                    [
-                        ordinal,
-                        offset
-                    ],
-                    cb
-                );
+            {}
+        )
+    }
+
+    write ( data ) {
+        return this.queue.acquire()
+        .then( token => {
+            const result =  this.position
+            this.position += data.length
+
+            const saturated = ! this.stream.write( data )
+            if ( saturated ) {
+                this.stream.once( 'drain', () => this.queue.release( client ))
+            } else {
+                this.queue.release( token )
             }
-        ],
-        callback
-    );
-};
-
-//
-// ClusterBuilder
-//
-var ClusterBuilder = {
-    count: 2,
-    true: new Cluster(0, true), // compressible cluster
-    false: new Cluster(1, false), // uncompressible cluster
-};
-
-ClusterBuilder.append = function (article, callback) {
-    //~ log('ClusterBuilder.append', arguments);
-
-    var compressible = article.isCompressible();
-    var data = article.data;
-    var cluster = ClusterBuilder[compressible];
-    var clusterNum = cluster.ordinal;
-    var blobNum = cluster.append(data);
-    var cb = function () {
-        callback(null, clusterNum, blobNum);
-    };
-
-    if (blobNum !== false) {
-        async.setImmediate(cb);
-    } else { // store to a new cluster
-        var oldCluster = cluster;
-        cluster = ClusterBuilder[compressible] = new Cluster(ClusterBuilder.count++, compressible);
-        clusterNum = cluster.ordinal;
-        blobNum = cluster.append(data);
-        oldCluster.save(cb);
+            return result
+        })
     }
 
-    log('ClusterBuilder.append', compressible, clusterNum, blobNum, data.length, article.url);
-};
-
-// The cluster pointer list is a list of 8 byte offsets which point to all data clusters in a ZIM file.
-// Field Name  Type    Offset  Length  Description
-// <1st Cluster>   integer     0   8   pointer to the <1st Cluster>
-// <1st Cluster>   integer     8   8   pointer to the <2nd Cluster>
-// <nth Cluster>   integer     (n-1)*8     8   pointer to the <nth Cluster>
-// ...     integer     ...     8   ...
-
-ClusterBuilder.storePointers = function (callback) {
-    saveIndex (
-        `
-        SELECT
-            offset
-        FROM clusters
-        ORDER BY ordinal;
-        `,
-        8, 'offset', ClusterBuilder.count, 'ClusterBuilder',
-        function ( err, offset ) {
-            header.clusterPtrPos = offset;
-            callback( err );
-        }
-        );
+    close () {
+        return this.queue.drain()
+        .then( () => new Promise( resolve => {
+            this.queue.clear()
+            this.stream.once( 'close', () => {
+                log( this.stream.path, 'closed', this.position, this.stream.bytesWritten )
+                resolve( this.position )
+            })
+            log( 'closing', this.stream.path )
+            this.stream.end()
+        }))
+    }
 }
 
-ClusterBuilder.finish = function (callback) {
-    //~ log('ClusterBuilder.finish', ClusterBuilder);
-    async.series([
-        function (cb) {ClusterBuilder[true].save(cb)}, // save last compressible cluster
-        function (cb) {ClusterBuilder[false].save(cb)}, // save last uncompressible cluster
-        ClusterBuilder.storePointers
-        ],
-        callback
-    );
-};
+//
+// Cluster
+//
+
+// ClusterSizeThreshold = 8 * 1024 * 1024
+var ClusterSizeThreshold = 4 * 1024 * 1024
+// ClusterSizeThreshold = 2 * 1024 * 1024
+// ClusterSizeThreshold = 2 * 1024
+
+class Cluster {
+    constructor ( ordinal, compressible ) {
+        this.ordinal = ordinal
+        this.compressible = compressible
+        this.blobs = []
+        this.size = 0
+    }
+
+    append ( data ) {
+        var ordinal = this.ordinal
+        var blobNum = this.blobs.length
+        if ( blobNum != 0 && this.size + data.length > ClusterSizeThreshold )
+            return false
+
+        this.blobs.push( data )
+        this.size += data.length
+        return blobNum
+    }
+
+    // Cluster
+    // Field Name          Type    Offset  Length  Description
+    // compression type    integer     0   1   0: default (no compression), 1: none (inherited from Zeno), 4: LZMA2 compressed
+    // The following data bytes have to be uncompressed!
+    // <1st Blob>          integer     1   4   offset to the <1st Blob>
+    // <2nd Blob>          integer     5   4   offset to the <2nd Blob>
+    // <nth Blob>          integer     (n-1)*4+1   4   offset to the <nth Blob>
+    // ...                 integer     ...     4   ...
+     // <last blob / end>   integer     n/a     4   offset to the end of the cluster
+    // <1st Blob>          data        n/a     n/a     data of the <1st Blob>
+    // <2nd Blob>          data        n/a     n/a     data of the <2nd Blob>
+    // ...                 data        ...     n/a     ...
+
+    save () {
+        //~ log( 'Cluster.prototype.save', this.compressible, this.blobs )
+
+        var nBlobs = this.blobs.length
+        if ( nBlobs == 0 )
+            return Promise.resolve()
+
+        // generate blob offsets
+        var offsets = Buffer.allocUnsafe(( nBlobs + 1 ) * 4 )
+        var blobOffset = offsets.length
+        for ( var i=0; i < nBlobs; i++ ) {
+            offsets.writeUIntLE( blobOffset, i * 4, 4 )
+            blobOffset += this.blobs[ i ].length
+        }
+        //~ log( this.ordinal,'generate blob offsets', nBlobs, offsets.length, i, blobOffset )
+        offsets.writeUIntLE( blobOffset, i * 4, 4 ) // final offset
+
+        // join offsets and article data
+        this.blobs.unshift( offsets )
+        var data = Buffer.concat( this.blobs )
+        var rawSize = data.length
+
+        var compression = this.compressible ? 4 : 0
+        var ordinal = this.ordinal
+
+        return Promise.coroutine( function* () {
+            if ( compression ) {
+                // https://tukaani.org/lzma/benchmarks.html
+                data = yield lzma.compress( data, 7 ) // 3 | lzma.PRESET_EXTREME )
+                log( 'Cluster lzma compressed' )
+            }
+
+            log( 'Cluster write', ordinal, compression )
+            const offset = yield out.write( Buffer.concat([ Buffer.from([ compression ]), data ]))
+
+            log( 'Cluster saved', ordinal, offset )
+            return zIndex.run(
+                'INSERT INTO clusters (ordinal, offset) VALUES (?,?)',
+                [
+                    ordinal,
+                    offset
+                ]
+            )
+        }) ()
+    }
+}
+
+//
+// ClusterWriter
+//
+var ClusterWriter = {
+    count: 2,
+    true: new Cluster( 0, true ), // compressible cluster
+    false: new Cluster( 1, false ), // uncompressible cluster
+    pool: genericPool.createPool(
+        {
+            create () { return Promise.resolve( Symbol() ) },
+            destroy ( resource ) { return Promise.resolve() },
+        },
+        { max: 8, }
+    ),
+
+    append: function ( mimeType, data, id /* for debugging */ ) {
+        //~ log( 'ClusterWriter.append', arguments )
+
+        var compressible = ClusterWriter.isCompressible( mimeType, data, id )
+        var cluster = ClusterWriter[ compressible ]
+        var clusterNum = cluster.ordinal
+        var blobNum = cluster.append( data )
+
+        if ( blobNum === false ) { // store to a new cluster
+            ClusterWriter[ compressible ] = new Cluster( ClusterWriter.count ++, compressible )
+            const ready = ClusterWriter.pool.acquire()
+
+            ready.then( token => cluster.save()
+                .then( () => ClusterWriter.pool.release( token ))
+            )
+
+            return ready
+            .then( () => ClusterWriter.append( mimeType, data, id ))
+        }
+
+        log( 'ClusterWriter.append', compressible, clusterNum, blobNum, data.length, id )
+        return Promise.resolve([ clusterNum, blobNum ])
+    },
+
+    isCompressible: function ( mimeType, data, id ) {
+        //~ log( 'isCompressible', this )
+        if ( data == null || data.length == 0 )
+            return false
+        if ( !mimeType ) {
+            console.trace( 'Article.prototype.isCompressible mimeType', mimeType, id )
+            process.exit( 1 )
+        }
+        if ( mimeType == 'image/svg+xml' || mimeType.split( '/' )[ 0 ] == 'text' )
+            return true
+        return !! ( mimeDb[ mimeType ] && mimeDb[ mimeType ].compressible )
+    },
+
+    // The cluster pointer list is a list of 8 byte offsets which point to all data clusters in a ZIM file.
+    // Field Name  Type    Offset  Length  Description
+    // <1st Cluster>   integer     0   8   pointer to the <1st Cluster>
+    // <1st Cluster>   integer     8   8   pointer to the <2nd Cluster>
+    // <nth Cluster>   integer     (n-1)*8     8   pointer to the <nth Cluster>
+    // ...     integer     ...     8   ...
+
+    storeIndex: function () {
+        return saveIndex (
+            `
+            SELECT
+                offset
+            FROM clusters
+            ORDER BY ordinal
+            ;
+            `,
+            8, 'offset', ClusterWriter.count, 'storeClusterIndex'
+        )
+        .then( offset => header.clusterPtrPos = offset )
+    },
+
+    finish: function () {
+        //~ log( 'ClusterWriter.finish', ClusterWriter )
+
+        return ClusterWriter[ true ].save() // save last compressible cluster
+        .then( () => ClusterWriter[ false ].save()) // save last uncompressible cluster
+        .then( () => ClusterWriter.pool.drain())
+        .then( () => ClusterWriter.pool.clear())
+        .then( () => ClusterWriter.storeIndex())
+    },
+}
 
 //
 // Article
 //
-function Article (path, mimeType, nameSpace, title, data) {
-    if (! path)
-        return;
-    this.mimeType = mimeType;
-    this.nameSpace = nameSpace;
-    this.url = path;
-    this.title = title || '';
-    this.data = data;
-    this.ordinal = null;
-    this.dirEntry = null;
-    this.revision = 0;
-    this.articleId = ++ articleId;
-
-    //~ if (this.title == mainPage.title) {
-        //~ log('mainPage', mainPage.title, this);
-        //~ mainPage.article = this;
-    //~ }
-    //~ log('Article', this);
-};
-
-Article.prototype.isCompressible = function () {
-    var mimeType = this.mimeType;
-    //~ log('isCompressible', this);
-    if (this.data == null || this.data.length == 0)
-        return false;
-    if (!mimeType) {
-        console.trace('Article.prototype.isCompressible mimeType', mimeType, this);
-        process.exit(1);
+class Article {
+    constructor ( path, mimeType, nameSpace, title, data ) {
+        if ( ! path )
+            return
+        this.mimeType = mimeType
+        this.nameSpace = nameSpace
+        this.url = path
+        this.title = title || ''
+        this.data = data
+        this.ordinal = null
+        this.dirEntry = null
+        this.revision = 0
+        this.articleId = ++ articleId
     }
-    if (mimeType == 'image/svg+xml' || mimeType.split('/')[0] == 'text')
-        return true;
-    return !! (mimeDb[mimeType] && mimeDb[mimeType].compressible);
-};
 
-Article.prototype.storeData = function (callback) {
-    var data = this.data;
-    if (data != null) {
-        if (! (data instanceof Buffer)) {
-            this.data = Buffer.from(data);
+    nsUrl () {
+        return this.nameSpace + this.url
+    }
+
+    nsTitle () {
+        return this.nameSpace + ( this.title || this.url )
+    }
+
+    storeData ( data ) {
+        if ( data == null )
+            return Promise.resolve()
+        if ( !( data instanceof Buffer )) {
+            data = Buffer.from( data )
         }
-    }
-    ClusterBuilder.append( this, callback);
-    //~ this.data = null;
-};
-
-Article.prototype.load = function (callback) {
-    async.setImmediate(callback);
-};
-
-Article.prototype.process = function (callback) {
-    var url = this.url;
-    log('Article.prototype.process', this.url);
-
-    this.load(function (err) {
-        if (err || this.data == null)
-            return callback(err);
-        async.waterfall([
-                this.storeData.bind(this),
-                this.storeDirEntry.bind(this),
-                this.toArticleIndex.bind(this)
-            ],
-            callback
-        );
-    }.bind(this));
-};
-
-// Article Entry
-// Field Name      Type    Offset  Length  Description
-// mimetype        integer     0   2   MIME type number as defined in the MIME type list
-// parameter       len byte    2   1   (not used) length of extra paramters
-// namespace       char        3   1   defines to which namespace this directory entry belongs
-// revision        integer     4   4   (optional) identifies a revision of the contents of this directory entry, needed to identify updates or revisions in the original history
-// cluster number  integer     8   4   cluster number in which the data of this directory entry is stored
-// blob number     integer     12  4   blob number inside the compressed cluster where the contents are stored
-// url             string      16  zero terminated     string with the URL as refered in the URL pointer list
-// title           string      n/a     zero terminated     string with an title as refered in the Title pointer list or empty; in case it is empty, the URL is used as title
-// parameter       data        see parameter len   (not used) extra parameters
-
-Article.prototype.storeDirEntry = function (clusterIdx, blobIdx, callback) {
-    // this also serves redirect dirEntry, which is shorter in 4 bytes
-    var needsSave = clusterIdx != null
-
-    if (! needsSave )
-        return async.setImmediate(callback);
-
-    var shortEntry = blobIdx == null
-
-    var buf = Buffer.allocUnsafe(shortEntry ? 12 : 16);
-    var mimeIndex = mimeTypeIndex(this.mimeType);
-
-    log('storeDirEntry', clusterIdx, blobIdx, mimeIndex, this);
-
-    buf.writeUIntLE(mimeIndex,     0, 2);
-    buf.writeUIntLE(0,             2, 1); // parameters length
-    buf.write(this.nameSpace,      3, 1);
-    buf.writeUIntLE(this.revision, 4, 4); // revision
-    buf.writeUIntLE(clusterIdx,    8, 4); // or redirect target article index
-    if (! shortEntry)
-        buf.writeUIntLE(blobIdx,  12, 4);
-
-    var urlBuf = Buffer.from(this.url + '\0');
-    var titleBuf = Buffer.from(this.title + '\0');
-
-    out.write(
-        Buffer.concat([buf, urlBuf, titleBuf]),
-        function (err, offset) {
-            this.dirEntry = offset;
-            log('storeArticleEntry done', err || 'OK', offset, buf.length, this.url);
-            callback(err);
-        }.bind(this)
-    );
-}
-
-Article.prototype.indexDirEntry = function (callback) {
-    auxDb.run(
-        'INSERT INTO dirEntries (articleId, offset) VALUES (?,?)',
-        [
-            this.articleId,
-            this.dirEntry,
-        ],
-        callback
-    );
-};
-
-Article.prototype.nsUrl = function (callback) {
-    return this.nameSpace + this.url;
-};
-
-Article.prototype.nsTitle = function (callback) {
-    return this.nameSpace + (this.title || this.url);
-};
-
-Article.prototype.toArticleIndex = function (callback) {
-    if (!this.url) {
-        console.trace('Article no url', this);
-        process.exit(1);
+        return ClusterWriter.append( this.mimeType, data, this.url )
     }
 
-    articleCount++;
+    load () {
+        return Promise.resolve( this.data )
+    }
 
-    auxDb.serialize( function () {
-        if (this.dirEntry)
-            this.indexDirEntry();
-        auxDb.run(
+    process () {
+        log( 'Article process', this.url )
+
+        return this.load()
+        .then( data => this.storeData( data ))
+        .then( ([ clusterIdx, blobIdx ]) => this.storeDirEntry( clusterIdx, blobIdx ))
+        .then( () => this.indexArticle())
+    }
+
+    // Article Entry
+    // Field Name      Type    Offset  Length  Description
+    // mimetype        integer     0   2   MIME type number as defined in the MIME type list
+    // parameter       len byte    2   1   (not used) length of extra paramters
+    // namespace       char        3   1   defines to which namespace this directory entry belongs
+    // revision        integer     4   4   (optional) identifies a revision of the contents of this directory entry, needed to identify updates or revisions in the original history
+    // cluster number  integer     8   4   cluster number in which the data of this directory entry is stored
+    // blob number     integer     12  4   blob number inside the compressed cluster where the contents are stored
+    // url             string      16  zero terminated     string with the URL as refered in the URL pointer list
+    // title           string      n/a     zero terminated     string with an title as refered in the Title pointer list or empty; in case it is empty, the URL is used as title
+    // parameter       data        see parameter len   (not used) extra parameters
+
+    storeDirEntry ( clusterIdx, blobIdx ) {
+        // this also serves redirect dirEntry, which is shorter in 4 bytes
+        var needsSave = clusterIdx != null
+
+        if ( ! needsSave )
+            return Promise.resolve()
+
+        var shortEntry = blobIdx == null
+
+        var buf = Buffer.allocUnsafe( shortEntry ? 12 : 16 )
+        var mimeIndex = mimeTypeIndex( this.mimeType )
+
+        log( 'storeDirEntry', clusterIdx, blobIdx, mimeIndex, this )
+
+        buf.writeUIntLE( mimeIndex,     0, 2 )
+        buf.writeUIntLE( 0,             2, 1 ) // parameters length
+        buf.write( this.nameSpace,      3, 1 )
+        buf.writeUIntLE( this.revision, 4, 4 ) // revision
+        buf.writeUIntLE( clusterIdx,    8, 4 ) // or redirect target article index
+        if ( ! shortEntry )
+            buf.writeUIntLE( blobIdx,  12, 4 )
+
+        var urlBuf = Buffer.from( this.url + '\0' )
+        var titleBuf = Buffer.from( this.title + '\0' )
+
+        return out.write( Buffer.concat([ buf, urlBuf, titleBuf ]))
+        .then( offset => {
+            log( 'storeDirEntry done', offset, buf.length, this.url )
+            return this.dirEntry = offset
+        })
+        .then( offset => this.indexDirEntry( offset ))
+    }
+
+    indexDirEntry ( offset ) {
+        log( 'indexDirEntry', this.articleId, offset, this.url )
+        return zIndex.run(
+            'INSERT INTO dirEntries (articleId, offset) VALUES (?,?)',
+            [
+                this.articleId,
+                offset,
+            ]
+        )
+    }
+
+    indexArticle () {
+        if ( !this.url ) {
+            console.trace( 'Article no url', this )
+            process.exit( 1 )
+        }
+        articleCount++
+
+        return zIndex.run(
             'INSERT INTO articles (articleId, nsUrl, nsTitle) VALUES (?,?,?)',
             [
                 this.articleId,
                 this.nsUrl(),
                 this.nsTitle()
-            ],
-            callback
-        );
-    }.bind(this));
-};
+            ]
+        )
+    }
+}
 
 //
 // class Linktarget
 //
-function Linktarget (path, nameSpace, title) {
-    Article.call(this, path, LINKTARGET_MIME, nameSpace, title);
-    log('Linktarget', nameSpace, path, this);
-};
+class Linktarget extends Article {
+    constructor ( path, nameSpace, title ) {
+        super( path, LINKTARGET_MIME, nameSpace, title )
+        log( 'Linktarget', nameSpace, path, this )
+    }
 
-Linktarget.prototype.process = function (callback) {
-    log('Linktarget.prototype.process', this.url);
-    async.series([
-            this.storeDirEntry.bind(this),
-            this.toArticleIndex.bind(this)
-        ],
-        callback
-    );
-};
+    process () {
+        log( 'Linktarget.prototype.process', this.url )
+        return this.storeDirEntry()
+        .then( () => this.indexArticle())
+    }
 
-Linktarget.prototype.storeDirEntry = function (callback) {
-    Article.prototype.storeDirEntry.call(this, true, true, callback);
-};
-
-util.inherits(Linktarget, Article);
+    storeDirEntry () {
+        return super.storeDirEntry( true, true )
+    }
+}
 
 //
 // class DeletedEntry
 //
-function DeletedEntry (path, nameSpace, title) {
-    Article.call(this, path, DELETEDENTRY_MIME, nameSpace, title);
-    log('DeletedEntry', nameSpace, path, this);
-};
-
-util.inherits(DeletedEntry, Linktarget);
+class DeletedEntry extends Linktarget {
+    constructor ( path, nameSpace, title ) {
+        super( path, DELETEDENTRY_MIME, nameSpace, title )
+        log( 'DeletedEntry', nameSpace, path, this )
+    }
+}
 
 //
 // class Redirect
 //
-function Redirect (path, nameSpace, title, redirect, redirectNameSpace) {
-    var src
-    if (path instanceof Article) { // converted Article
-        src = path
-        path = src.url
-        nameSpace = src.nameSpace
-        title = src.title
-        redirect = src.redirect
+class Redirect extends Article {
+    constructor ( path, nameSpace, title, redirect, redirectNameSpace ) {
+        super( path, REDIRECT_MIME, nameSpace, title )
+
+        this.redirect = ( redirectNameSpace || nameSpace ) + redirect
+        log( 'Redirect', nameSpace, path, this.redirect, this )
+        redirectCount ++
     }
-    Article.call(this, path, REDIRECT_MIME, nameSpace, title);
-    this.redirect = (redirectNameSpace || nameSpace) + redirect;
-    log('Redirect', nameSpace, path, this.redirect, this);
-    redirectCount ++;
-};
 
-util.inherits(Redirect, Article);
+    process () {
+        return this.indexArticle()
+        .then( () => this.toRedirectIndex() )
+    }
 
-Redirect.prototype.process = function (callback) {
-    async.series([
-            this.toArticleIndex.bind(this),
-            this.toRedirectIndex.bind(this)
-        ],
-        callback
-    );
-};
-
-Redirect.prototype.toRedirectIndex = function (callback) {
-    auxDb.run(
-        'INSERT INTO redirects (articleId, redirect) VALUES (?,?)',
-        [
-            this.articleId,
-            this.redirect
-        ],
-        callback
-    );
-};
+    toRedirectIndex () {
+        return zIndex.run(
+            'INSERT INTO redirects (articleId, redirect) VALUES (?,?)',
+            [
+                this.articleId,
+                this.redirect
+            ]
+        )
+    }
+}
 
 //
 // class ResolvedRedirect
 //
-function ResolvedRedirect (articleId, nameSpace, url, title, target) {
-    Article.call(this, url, REDIRECT_MIME, nameSpace, title);
-    this.target = target;
-    this.articleId = articleId;
-};
+class ResolvedRedirect extends Article {
+    constructor ( articleId, nameSpace, url, title, target ) {
+        super( url, REDIRECT_MIME, nameSpace, title )
+        this.target = target
+        this.articleId = articleId
+    }
 
-util.inherits(ResolvedRedirect, Article);
+    process () {
+        log( 'ResolvedRedirect.prototype.process', this.url )
+        resolvedRedirectCount ++
 
-ResolvedRedirect.prototype.process = function (callback) {
-    log('ResolvedRedirect.prototype.process', this.url);
-    resolvedRedirectCount ++;
-    async.series([
-            this.storeDirEntry.bind(this),
-            this.indexDirEntry.bind(this)
-        ],
-        callback
-    );
-};
+        return this.storeDirEntry()
+    }
 
-// Redirect Entry
-// Field Name      Type    Offset  Length  Description
-// mimetype        integer 0       2       0xffff for redirect
-// parameter len   byte    2       1       (not used) length of extra paramters
-// namespace       char    3       1       defines to which namespace this directory entry belongs
-// revision        integer 4       4       (optional) identifies a revision of the contents of this directory entry, needed to identify updates or revisions in the original history
-// redirect index  integer 8       4       pointer to the directory entry of the redirect target
-// url             string  12      zero terminated     string with the URL as refered in the URL pointer list
-// title           string  n/a     zero terminated     string with an title as refered in the Title pointer list or empty; in case it is empty, the URL is used as title
-// parameter       data    see parameter len   (not used) extra parameters
+    storeDirEntry () {
+        // Redirect Entry
+        // Field Name      Type    Offset  Length  Description
+        // mimetype        integer 0       2       0xffff for redirect
+        // parameter len   byte    2       1       (not used) length of extra paramters
+        // namespace       char    3       1       defines which namespace this directory entry belongs to
+        // revision        integer 4       4       (optional) identifies a revision of the contents of this directory entry, needed to identify updates or revisions in the original history
+        // redirect index  integer 8       4       pointer to the directory entry of the redirect target
+        // url             string  12      zero terminated     string with the URL as refered in the URL pointer list
+        // title           string  n/a     zero terminated     string with an title as refered in the Title pointer list or empty; in case it is empty, the URL is used as title
+        // parameter       data    see parameter len   (not used) extra parameters
 
-ResolvedRedirect.prototype.storeDirEntry = function (callback) {
-
-    // redirect dirEntry shorter on one 4 byte field
-    Article.prototype.storeDirEntry.call(this, this.target, null, callback);
-};
+        // redirect dirEntry shorter on one 4 byte field
+        return super.storeDirEntry( this.target, null )
+    }
+}
 
 //
 // class File
 //
-function File (path, realPath) {
-    var url = path
-    var mimeType = getMimeType(path, realPath);
-    var nameSpace
-    if ( zimFormated ) {
-        nameSpace = path[0]
-        path = realPath || path
-        url = path.slice(2)
+class File extends Article {
+
+    constructor ( path, realPath ) {
+        var url = path
+        var mimeType = getMimeType( path, realPath )
+        var nameSpace
+        if ( zimFormated ) {
+            nameSpace = path[ 0 ]
+            url = path.slice( 2 )
+            path = realPath || path
+        }
+        super( url, mimeType, nameSpace )
+        this.path = path
+        //~ log( this )
     }
-    Article.call(this, url, mimeType, nameSpace);
-    this.path = path;
-    //~ log(this);
-};
 
-util.inherits (File, Article);
+    alterLinks ( dom ) {
+        var base = '/' + this.url
+        var nsBase = '/' + this.nameSpace + base
+        var baseSplit = nsBase.split( '/' )
+        var baseDepth = baseSplit.length - 1
+        var changes = 0
 
-File.prototype.parse = function () {
-    if (this.mimeType != 'text/html' ) {
-        return null;
+        function toRelativeLink ( elem, attr ) {
+            try {
+                var link = url.parse( elem.attribs[ attr ], true, true )
+            } catch ( err ) {
+                console.warn( 'alterLinks', err.message, elem.attribs[ attr ], 'at', base )
+                return
+            }
+            var path = link.pathname
+            if ( link.protocol || link.host || ! path )
+                return
+            var nameSpace = getNameSpace( getMimeType( path ))
+            if ( ! nameSpace )
+                return
+
+            // convert to relative path
+            var absPath = '/' + nameSpace + url.resolve( base, path )
+            var to = absPath.split( '/' )
+            var i = 0
+            for ( ; baseSplit[ i ] === to[ 0 ] && i < baseDepth; i++ ) {
+                to.shift()
+            }
+            for ( ; i < baseDepth; i++ ) {
+                to.unshift( '..' )
+            }
+            var relPath = to.join( '/' )
+            log( 'alterLinks', nsBase, decodeURI( path ), decodeURI( absPath ), decodeURI( relPath ))
+
+            link.pathname = relPath
+            elem.attribs[ attr ] = url.format( link )
+
+            changes ++
+            return
+        }
+
+        ['src', 'href'].map( attr => {
+            dom( '['+attr+']' ).each( (index, elem) => toRelativeLink ( elem, attr ))
+        })
+
+        log( 'alterLinks', changes )
+
+        return changes > 0
     }
-    //~ log('File.prototype.parse', this);
-    var text = this.data.toString();
 
-    var parseError;
-    var handler = new htmlparser.DomHandler(function (err, dom) {
-            if (err)
-                console.error(err, dom);
-            parseError = err;
-        });
-    var parser = new htmlparser.Parser(
-        handler,
-        {decodeEntities: true}
-    );
+    isRedirect ( dom ) {
+        var content = dom( 'meta[http-equiv="refresh"]' ).attr( 'content' )
+        if ( content == null )
+            return null
+        var splited = content.split( ';' )
+        if ( ! splited[ 1 ] )
+            return null
 
-    parser.write(text);
-    parser.end();
+        log( 'File.prototype.getRedirect', this.url, splited)
+        var link = url.parse( splited[ 1 ].split( '=', 2 )[ 1 ], true, true )
+        if ( link.protocol || link.host || ! link.pathname || link.pathname[ 0 ] =='/' )
+            return null
 
-    if (parseError)
-        return null;
+        var target = decodeURIComponent( link.pathname )
+        return target
+    }
 
-    return handler.dom;
-};
-
-File.prototype.setTitle = function (dom) {
-    var elem = domutils.getElementsByTagName('title', dom, true)[0];
-    if (elem)
-        this.title = domutils.getText(elem);
-    return this.title;
-};
-
-File.prototype.alterLinks = function (dom) {
-
-    var base = '/' + this.url;
-    var nsBase = '/' + this.nameSpace + base;
-    var baseSplit = nsBase.split('/');
-    var baseDepth = baseSplit.length - 1;
-
-    function toRelativeLink (elem, attr) {
-        if (! (elem.attribs && elem.attribs[attr]))
-            return false;
-        try {
-            var link = url.parse(elem.attribs[attr], true, true);
-        } catch (err) {
-            console.warn('alterLinks', err.message, elem.attribs[attr], 'at', base);
-            return false;
+    processHtml ( data ) {
+        var dom = cheerio.load( data.toString())
+        if ( dom ) {
+            var title = dom( 'title' ).text()
+            this.title = this.title || title
+            var redirect = this.isRedirect ( dom )
+            if ( redirect ) { // convert to redirect
+                this.data = null
+                var redirect = new Redirect( this.path, this.nameSpace, this.title, redirect )
+                return redirect.process()
+            }
+            if ( ! zimFormated && this.alterLinks( dom ))
+                data = Buffer.from( dom.html())
         }
-        var path = link.pathname;
-        if ( link.protocol || link.host || ! path )
-            return false;
-        var nameSpace = getNameSpace(getMimeType(path));
-        if ( ! nameSpace )
-            return false;
+        return data
+    }
 
-        // convert to relative path
-        var absPath = '/' + nameSpace + url.resolve(base, path);
-        var to = absPath.split('/');
-        var i = 0;
-        for (; baseSplit[i] === to[0] && i < baseDepth; i++) {
-            to.shift();
-        }
-        for (; i < baseDepth; i++) {
-            to.unshift('..');
-        }
-        var relPath = to.join('/');
-        log('alterLinks', nsBase, path, absPath, relPath);
+    processJpeg ( data ) {
+        return spawn( mozjpeg, [ '-quality', argv.jpegquality ], data )
+    }
 
-        link.pathname = relPath;
-        elem.attribs[attr] = url.format(link);
-        return true;
-    };
+    processImage ( data ) {
+        return Promise.coroutine( function* () {
+            const image = sharp( data )
+            let toJpeg = true
 
-    var res = domutils.filter(
-        function (elem) {
-            return toRelativeLink(elem, 'src') || toRelativeLink(elem, 'href');
-        },
-        dom,
-        true
-    );
-    log('alterLinks', res.length);
+            const metadata = yield image.metadata()
 
-    return res.length != 0;
-};
+            if ( metadata.hasAlpha && metadata.channels == 1 ) {
+                log( 'metadata.channels == 1', this.url )
+            }
 
-File.prototype.getRedirect = function (dom) {
-    var target = null;
+            if ( metadata.hasAlpha && metadata.channels > 1 && this.data.length > 20000 ) {
+                const alpha = yield image
+                    .clone()
+                    .extractChannel( metadata.channels - 1 )
+                    .raw()
+                    .toBuffer()
 
-    var isRedirectLink = function (elem) {
-        if (! (elem.attribs && elem.attribs['http-equiv'] == "refresh" && elem.attribs['content']))
-            return false;
+                const opaqueAlpha = Buffer.alloc( alpha.length, 0xff )
+                const isOpaque = alpha.equals( opaqueAlpha )
 
-        var content = elem.attribs['content'].split(';');
-        if (!(content[0] == 0 && content[1]))
-            return false;
+                isOpaque && log( 'isOpaque', this.url )
 
-        log('File.prototype.getRedirect', this.url, content, content[1].split('=', 2)[1]);
-        var link = url.parse(content[1].split('=', 2)[1], true, true);
-        if (link.protocol || link.host || ! link.pathname || link.pathname[0] =='/')
-            return false;
+                toJpeg = isOpaque
+            }
 
-        target = decodeURIComponent(link.pathname);
+            if ( toJpeg ) {
+                image.jpeg({
+                    force: true,
+                    quality: argv.jpegquality,
+                    progressive: this.data.length < 20000 ? false : true,
+                })
+                this.mimeType = 'image/jpeg'
+            }
 
-        return true;
-    } .bind(this);
+            return image.toBuffer()
+        }).call( this )
+    }
 
-    domutils.filter(
-        isRedirectLink,
-        dom,
-        true
-    );
+    load () {
+        return Promise.coroutine( function* () {
+            let data = yield fs.readFile( fullPath( this.path ))
+            if ( argv.inflateHtml && this.mimeType == 'text/html' )
+                data = yield zlib.inflate( data ) // inflateData
 
-    return target;
-};
-
-File.prototype.load = function (callback) {
-    async.waterfall([
-            async.apply(fs.readFile, fullPath(this.path)),
-
-            function inflateData (data, cb) {
-                if (argv.inflateHtml && this.mimeType == 'text/html')
-                    zlib.inflate(data, cb)
-                else
-                    cb(null, data);
-            }.bind(this),
-
-            function mimeFromData (data, cb) {
-                this.data = data;
-                if (this.mimeType)
-                    return cb();
-                mimeMagic.detect(data, function(err, mimeType) {
-                    log('File.prototype.load mimeMagic.detect', err, mimeType, this.url);
-                    this.mimeType = mimeType;
-                    cb(err);
-                }.bind(this));
-            }.bind(this),
-
-            function parseHtml (cb) {
-                this.nameSpace = this.nameSpace || getNameSpace(this.mimeType);
-                var dom = this.parse();
-                if (dom) {
-                    this.setTitle (dom);
-                    var redirect = this.getRedirect (dom);
-                    if (redirect) { // convert to redirect
-                        this.data = null;
-                        this.redirect = redirect;
-                        var redirect = new Redirect (this);
-                        return redirect.process(cb);
-                    }
-                    if ( ! zimFormated && this.alterLinks (dom) )
-                        this.data = Buffer.from(domutils.getOuterHTML(dom));
-                }
-                cb();
-            }.bind(this),
-        ],
-        callback
-    );
+            if ( ! this.mimeType ) { // mimeFromData
+                this.mimeType = yield new Promise( resolve =>
+                    mimeMagic.detect( data, ( err, mimeType ) => {
+                        log( 'File  mimeMagic.detect', err, mimeType, this.url )
+                        resolve( err ? Promise.reject( err ) : mimeType )
+                    })
+                )
+            }
+            this.nameSpace = this.nameSpace || getNameSpace( this.mimeType )
+            switch ( this.mimeType ) {
+                case 'text/html':
+                    return this.processHtml( data )
+                //~ case 'image/gif':
+                case 'image/png':
+                    //~ if ( argv.optimg )
+                        //~ return this.processImage( data )
+                case 'image/jpeg':
+                    if ( argv.optimg )
+                        return this.processImage( data )
+                        //~ return this.processJpeg()
+                default:
+                    return data
+            }
+        }).call( this )
+    }
 }
 
 //
@@ -929,58 +855,54 @@ File.prototype.load = function (callback) {
 // Source          no      URI of the original source  http://en.wikipedia.org/
 // Counter         no      Number of non-redirect entries per mime-type    image/jpeg=5;image/gif=3;image/png=2;...
 
-function loadMetadata (callback) {
+function loadMetadata () {
     var metadata = zimFormated.metadata || [
-        ['Title', argv.title],
-        ['Creator', argv.creator],
-        ['Publisher', argv.publisher],
-        ['Date', new Date().toISOString().split('T')[0]],
-        ['Description', argv.description],
-        ['Language', argv.language],
-        ['logo', argv.favicon],
-        ['mainpage', argv.welcome],
+        [ 'Title', argv.title ],
+        [ 'Creator', argv.creator ],
+        [ 'Publisher', argv.publisher ],
+        [ 'Date', new Date().toISOString().split( 'T' )[ 0 ]],
+        [ 'Description', argv.description ],
+        [ 'Language', argv.language ],
+        [ 'logo', argv.favicon ],
+        [ 'mainpage', argv.welcome ],
     ]
-    metadata.push(['deadend', null])
 
-    async.each(
-        metadata,
-        function (item, cb) {
-            var article
-            var name = item[0]
-            var val = item[1]
-            switch (name) {
-                case 'mainpage':
-                    article  = mainPage = new Redirect ('mainpage', '-', null, val, 'A')
-                    break
-                case 'logo':
-                    article  = new Redirect ('favicon', '-', null, val, 'I')
-                    break
-                case 'deadend':
-                    article  = deadEndTarget = new Linktarget ('deadend', '-')
-                    break
-                default:
-                    article = new Article (name, 'text/plain', 'M', null, val)
-            }
+    const done = []
+    metadata.forEach( item => {
+        var article
+        var name = item[ 0 ]
+        var val = item[ 1 ]
+        switch ( name ) {
+            case 'mainpage':
+                article  = mainPage = new Redirect( 'mainpage', '-', null, val, 'A' )
+                break
+            case 'logo':
+                article  = new Redirect( 'favicon', '-', null, val, 'I' )
+                break
+            default:
+                article = new Article( name, 'text/plain', 'M', null, val )
+        }
+        done.push( article.process())
+    })
 
-            article.process(cb);
-        },
-        callback
-    );
+    deadEndTarget = new Linktarget ( 'deadend', '-' )
+    done.push( deadEndTarget.process())
+
+    return Promise.all( done )
 }
 
-function createAuxIndex(callback) {
-    var dbName = '';
-    if (argv.verbose) {
-        var parsed = osPath.parse(outPath);
-        dbName = osPath.join(parsed.dir, parsed.base + '.db');
+function createAuxIndex() {
+    var dbName = ''
+    if ( argv.verbose ) {
+        var parsed = osPath.parse( outPath )
+        dbName = osPath.join( parsed.dir, parsed.base + '.db' )
     }
-    fs.unlink(
-        dbName,
-        function () {
-            auxDb = new sqlite3.Database(dbName);
-            //~ auxDb.on('trace', function (sql) {log(sql);});
-            //~ auxDb.serialize();
-            auxDb.exec(
+    return fs.unlink( dbName )
+    .catch( () => null )
+    .then( () => sqlite.open( dbName ))
+    .then( db => {
+        zIndex = db
+        return zIndex.exec(
                 'PRAGMA synchronous = OFF;' +
                 'PRAGMA journal_mode = OFF;' +
                 //~ 'PRAGMA journal_mode = WAL;' +
@@ -1002,15 +924,14 @@ function createAuxIndex(callback) {
                 'CREATE TABLE clusters (' +
                     'ordinal INTEGER PRIMARY KEY,' +
                     'offset INTEGER ' +
-                    ');',
-                callback
-            );
+                    ');'
+            )
         }
-    );
+    )
 }
 
-function sortArticles (callback) {
-    auxDb.exec(`
+function sortArticles () {
+    return zIndex.exec(`
         CREATE INDEX articleNsUrl ON articles (nsUrl);
 
         CREATE TABLE urlSorted AS
@@ -1023,154 +944,140 @@ function sortArticles (callback) {
         CREATE INDEX urlSortedArticleId ON urlSorted (articleId);
 
         CREATE INDEX articleNsTitle ON articles (nsTitle);
-        `,
-        callback
-    );
+        `
+    )
 }
 
-function loadRedirects (callback) {
+function loadRedirects () {
     var redirectsFile
-    if (zimFormated)
+    if ( zimFormated )
         redirectsFile = zimFormated.redirects
-    else if (argv.redirects)
-        redirectsFile = expandHomeDir(argv.redirects)
+    else if ( argv.redirects )
+        redirectsFile = expandHomeDir( argv.redirects )
     else
-        return callback();
+        return Promise.resolve()
 
-    var inp = fs.createReadStream(redirectsFile);
-    var finished = false;
+    return Promise.coroutine( function* () {
+        var inp = fs.createReadStream( redirectsFile )
+        var finished = false
 
-    var parser = csvParse(
-        {
-            delimiter: '\t',
-            columns:['ns','path','title','target']
-        }
-    );
-    parser.on('error', function (err) {
-        console.log(err.message);
-        callback(err);
-    });
-    parser.on('end', function () {
-        log('loadRedirects finished');
-        finished = true;
-    });
-
-    log('loadRedirects start');
-    inp.pipe(parser);
-
-    function reader (cb) {
-        var row = parser.read();
-        if (row || finished ) {
-            async.setImmediate(cb, null, row);
-        } else {
-            parser.once('readable', async.apply(reader, cb));
-        }
-    }
-
-    async.doDuring(
-        reader,
-        function (row, cb) {
-            if (row && cb) {
-                new Redirect (row.path, row.ns, row.title, row.target)
-                    .process( function (err) {
-                        cb(err, true)
-                    });
-            } else {
-                async.setImmediate(cb || row, null, false);
+        var parser = csvParse(
+            {
+                delimiter: '\t',
+                columns:[ 'ns','path','title','target' ]
             }
-        },
-        callback
-    );
-};
+        )
+        parser.on( 'error', function ( err ) {
+            console.error( 'loadRedirects ' + err.message )
+            throw err
+        })
+        parser.on( 'end', function () {
+            log( 'loadRedirects finished' )
+            finished = true
+        })
 
-function resolveRedirects (callback) {
-    var stmt = auxDb.prepare(`
-        SELECT
-            src.articleId AS articleId,
-            src.nsUrl AS nsUrl,
-            src.nsTitle AS nsTitle,
-            redirect,
-            targetUrl,
-            targetIdx
-        FROM (
+        log( 'loadRedirects start' )
+        inp.pipe( parser )
+
+        function getRow () {
+            var row = parser.read()
+            if ( row || finished ) {
+                return Promise.resolve( row )
+            } else {
+                return new Promise( resolve => parser.once( 'readable', () => resolve( getRow())))
+            }
+        }
+
+        while ( true ) {
+            const row = yield getRow()
+            log( 'loadRedirects', row )
+            if ( row ) {
+                yield new Redirect( row.path, row.ns, row.title, row.target )
+                .process()
+            }
+            if ( finished ) {
+                return
+            }
+        }
+    }) ()
+
+}
+
+function resolveRedirects () {
+    return Promise.coroutine( function* () {
+        var stmt = yield zIndex.prepare( `
             SELECT
-                *,
-                u.rowid - 1 AS  targetIdx
+                src.articleId AS articleId,
+                src.nsUrl AS nsUrl,
+                src.nsTitle AS nsTitle,
+                redirect,
+                targetUrl,
+                targetIdx
             FROM (
                 SELECT
-                    redirects.articleId,
-                    redirect,
-                    d.nsUrl AS targetUrl,
-                    COALESCE ( d.articleId, (
-                        SELECT articleId FROM articles WHERE nsUrl = "${deadEndTarget.nsUrl()}")
-                    ) AS targetId
-                    -- d.articleId AS targetId
-                FROM redirects
-                LEFT OUTER JOIN articles AS d
-                ON redirect = targetUrl
-            ) AS r
-            LEFT OUTER JOIN urlSorted AS u
-            ON r.targetId = u.articleId
-        ) AS dst
-        JOIN articles AS src
-        USING (articleId)
-        -- WHERE targetIdx IS NULL
-        ;`);
-
-    function consumer (row, cb) {
-        var nameSpace = row.nsUrl[0];
-        var url = row.nsUrl.substr(1);
-        var title = (row.nsTitle == row.nsUrl) ? '' : row.nsTitle.substr(1);
-        if (url == 'mainpage')
-            mainPage.target = row.targetIdx;
-
-        new ResolvedRedirect (row.articleId, nameSpace, url, title, row.targetIdx)
-            .process(cb);
-    }
-    var queue = new CallbackQueue(consumer, 'resolveRedirects');
-
-    async.doDuring(
-        stmt.get.bind(stmt),
-        queue.push.bind(queue),
-        callback
-    );
-};
-
-function saveIndex (query, byteLength, rowField, count, logInfo, callback) {
-    logInfo = logInfo || 'saveIndex';
-    var i = 0;
-    log(logInfo, 'start', count);
-
-    var stmt = auxDb.prepare(query);
-    var startOffset;
-
-    async.doDuring(
-        stmt.get.bind(stmt),
-        function (row, cb) {
-            // null row gets srtipped from the arguments
-            if (row && cb) {
-                log(logInfo, i, row);
-                i++;
-                var buf = Buffer.allocUnsafe(byteLength);
-                buf.writeUIntLE(row[rowField], 0, byteLength);
-                out.write(
-                    buf,
-                    function (err, offset) {
-                        //~ log(logInfo, 'finished', i, count, offset);
-                        if (! startOffset )
-                            startOffset = offset;
-                        cb(err, true);
-                    }
-                );
-                return;
+                    *,
+                    u.rowid - 1 AS  targetIdx
+                FROM (
+                    SELECT
+                        redirects.articleId,
+                        redirect,
+                        d.nsUrl AS targetUrl,
+                        COALESCE ( d.articleId, (
+                            SELECT articleId FROM articles WHERE nsUrl = "${deadEndTarget.nsUrl()}")
+                        ) AS targetId
+                        -- d.articleId AS targetId
+                    FROM redirects
+                    LEFT OUTER JOIN articles AS d
+                    ON redirect = targetUrl
+                ) AS r
+                LEFT OUTER JOIN urlSorted AS u
+                ON r.targetId = u.articleId
+            ) AS dst
+            JOIN articles AS src
+            USING (articleId)
+            -- WHERE targetIdx IS NULL
+            ;`)
+        while ( true ) {
+            const row = yield stmt.get()
+            if ( ! row ) {
+                return
             }
-            log(logInfo, 'done', i, count, startOffset);
-            (cb || row)(null, false);
-        },
-        function (err) {
-            return callback( err, startOffset )
+            var nameSpace = row.nsUrl[ 0 ]
+            var url = row.nsUrl.substr( 1 )
+            var title = ( row.nsTitle == row.nsUrl ) ? '' : row.nsTitle.substr( 1 )
+            if ( url == 'mainpage' )
+                mainPage.target = row.targetIdx
+
+            yield new ResolvedRedirect ( row.articleId, nameSpace, url, title, row.targetIdx )
+                .process()
         }
-    );
+    }) ()
+}
+
+function saveIndex ( query, byteLength, rowField, count, logInfo ) {
+    logInfo = logInfo || 'saveIndex'
+    log( logInfo, 'start', count )
+
+    return Promise.coroutine( function* () {
+        var startOffset
+        var i = 0
+        var stmt = yield zIndex.prepare( query )
+        while ( true ) {
+            const row = yield stmt.get()
+            if ( ! row )
+                break
+            log( logInfo, i, row )
+            i++
+            var buf = Buffer.allocUnsafe( byteLength )
+            buf.writeUIntLE( row[ rowField ], 0, byteLength )
+
+            var offset = yield out.write( buf )
+            if ( ! startOffset )
+                startOffset = offset
+        }
+        log( logInfo, 'done', i, count, startOffset )
+        return Promise.resolve( startOffset )
+    }) ()
 }
 
 // URL Pointer List (urlPtrPos)
@@ -1186,8 +1093,8 @@ function saveIndex (query, byteLength, rowField, count, logInfo, callback) {
 // <nth URL>   integer     (n-1)*8     8   pointer to the directory entry of <nth URL>
 // ...     integer     ...     8   ...
 
-function storeUrlIndex (callback) {
-    saveIndex (`
+function storeUrlIndex () {
+    return saveIndex (`
         SELECT
             urlSorted.rowid,
             articleId,
@@ -1196,14 +1103,11 @@ function storeUrlIndex (callback) {
         FROM urlSorted
         LEFT OUTER JOIN dirEntries
         USING (articleId)
-        ORDER BY urlSorted.rowid;
-        `,
-        8, 'offset', articleCount, 'storeUrlIndex',
-        function ( err, offset ) {
-            header.urlPtrPos = offset;
-            callback( err );
-        }
-        );
+        ORDER BY urlSorted.rowid
+        ;`,
+        8, 'offset', articleCount, 'storeUrlIndex'
+    )
+    .then( offset => header.urlPtrPos = offset )
 }
 
 // Title Pointer List (titlePtrPos)
@@ -1215,159 +1119,59 @@ function storeUrlIndex (callback) {
 // <nth Title>     integer     (n-1)*4 4       pointer to the URL pointer of <nth Title>
 // ...             integer     ...     4       ...
 
-function storeTitleIndex (callback) {
-    saveIndex (
+function storeTitleIndex () {
+    return saveIndex (
         'SELECT ' +
-            //~ 'nsTitle, ' +
+            'nsTitle, ' +
             'urlSorted.rowid - 1 AS articleNumber ' +
         'FROM urlSorted ' +
         'JOIN articles ' +
         'USING (articleId) ' +
-        'ORDER BY nsTitle; ' +
-        '',
-        4, 'articleNumber', articleCount, 'storeTitleIndex',
-        function ( err, offset ) {
-            header.titlePtrPos = offset;
-            callback( err );
-        }
-        );
-}
-
-function loadFiles(callback) {
-    dirQueue = async.queue(scanDirectory, 1);
-
-    dirQueue.drain = function () {
-        log('loadFiles finished');
-        dirQueue.kill();
-        ClusterBuilder.finish(callback);
-    };
-
-    log('loadFiles start');
-    dirQueue.push('');
-}
-
-function scanDirectory(path, callback) {
-    log('scanDirectory', path);
-    async.waterfall([
-            async.apply(fs.readdir, fullPath(path)),
-            function (dirEntries, cbk) {
-                async.eachLimit(
-                    dirEntries,
-                    Math.round(cpuCount * 2),
-                    function (fname, cb) {
-                        if (fname == 'metadata.csv' || fname == 'redirects.csv')
-                            cb()
-                        else
-                            parseDirEntry(osPath.join(path, fname), null, cb);
-                    },
-                    cbk
-                );
-            }
-        ],
-        callback
-    );
-}
-
-function parseDirEntry(path, realPath, callback) {
-    var absPath = realPath || fullPath(path);
-    fs.lstat(
-        absPath,
-        function (err, stats) {
-            //~ log('parseDirEntry', err, path, absPath, stats.isFile(), stats.isDirectory(), stats.isSymbolicLink() );
-            if (err)
-                return callback(err);
-            if (stats.isDirectory()) {
-                dirQueue.push(path);
-                return callback();
-            }
-            if (stats.isSymbolicLink())
-                return fs.realpath(fullPath(path), function (err, realPath) {
-                    if (err)
-                        return callback(err);
-                    async.setImmediate(parseDirEntry, path, realPath, callback);
-                });
-            if (stats.isFile()) {
-                return new File (path, realPath) .process(callback);
-            }
-
-            callback(new Error('Invalid dir entry ' + absPath));
-        }
+        'ORDER BY nsTitle ' +
+        ';',
+        4, 'articleNumber', articleCount, 'storeTitleIndex'
     )
+    .then( offset => header.titlePtrPos = offset )
 }
 
-function initialise (callback) {
-    var stat = fs.statSync(srcPath); // check source
-    if (!stat.isDirectory()) {
-        return callback(new Error(srcPath + ' is not a directory'));
-    }
+const fileLoader = {
+    dirs: [''],
+    start: function () {
+        log( 'fileLoader start' )
+        return fileLoader.scanDirectories()
+        .then( () => log( 'fileLoader finished !!!!!!!!!' ))
+    },
+    scanDirectories: function ( path ) {
+        return Promise.coroutine( function* () {
+            for ( let path; ( path = fileLoader.dirs.shift()) != null; ) {
+                log( 'scanDirectory', path )
 
-    var mtdPath = osPath.join( srcPath, 'metadata.csv')
-    var mtdTxt = null
-    try {
-        mtdTxt = fs.readFileSync( mtdPath, 'utf8' )
-    } catch (err) {
-    }
-    if (mtdTxt) {
-        var mtdArr = csvParseSync( mtdTxt, { delimiter: '\t' });
-        zimFormated = {
-            metadata: mtdArr,
-            redirects: osPath.join( srcPath, 'redirects.csv')
-        }
-    }
+                yield Promise.map(
+                    fs.readdir( fullPath( path )),
+                    fname => fileLoader.parseDirEntry( osPath.join( path, fname ), null ),
+                    { concurrency: 4 }
+                )
+            }
+        }) ()
+    },
+    parseDirEntry: function ( path, realPath ) {
+        if ( path == 'metadata.csv' || path == 'redirects.csv' )
+            return Promise.resolve()
 
-    out = new Writer(outPath); // create output file
-    log('reserving space for header and mime type list');
-    out.write(Buffer.alloc(headerLength + maxMimeLength));
-
-    createAuxIndex(callback);
+        return fs.lstat( realPath || fullPath( path ) )
+        .then( stats => {
+            if ( stats.isDirectory())
+                return fileLoader.dirs.push( path )
+            if ( stats.isSymbolicLink())
+                return fs.realpath( fullPath( path ))
+                .then( realPath => fileLoader.parseDirEntry( path, realPath ))
+            if ( stats.isFile()) {
+                return new File( path, realPath ).process()
+            }
+            return Promise.reject( new Error( 'Invalid dir entry ' + absPath ))
+        })
+    },
 }
-
-function loadArticles (callback) {
-    async.parallel([
-            loadMetadata,
-            loadFiles,
-            loadRedirects,
-        ],
-        callback
-    );
-}
-
-function storeIndices (callback) {
-    async.parallel([
-            //~ ClusterBuilder.finish,
-            storeUrlIndex,
-            storeTitleIndex
-        ],
-        callback
-    );
-}
-/**/
-function postProcess (callback) {
-    async.series([
-            sortArticles,
-            resolveRedirects,
-            //~ storeIndices,
-            //~ ClusterBuilder.finish,
-            storeUrlIndex,
-            storeTitleIndex,
-        ],
-        callback
-    )
-}
-/**/
-/*
-function postProcess (callback) {
-    async.auto({
-            clusters:   ClusterBuilder.finish,
-            sort:       sortArticles,
-            titles:     ['sort', function(results, cb) {storeTitleIndex(cb)}],
-            resolve:    ['sort', function(results, cb) {resolveRedirects(cb)}],
-            urls:       ['resolve', function(results, cb) {storeUrlIndex(cb)}],
-        },
-        callback
-    );
-}
-/**/
 
 // MIME Type List (mimeListPos)
 
@@ -1381,117 +1185,134 @@ function postProcess (callback) {
 // <last entry / end>  string  n/a     zero terminated     empty string - end of MIME type list
 
 function getMimeTypes () {
-    var buf = Buffer.from(mimeTypeList.join('\0') + '\0');
-    log('MimeTypes', mimeTypeList.length, buf.length);
+    var buf = Buffer.from( mimeTypeList.join( '\0' ) + '\0' )
+    log( 'MimeTypes', mimeTypeList.length, buf.length )
 
-    if (buf.length > maxMimeLength) {
-        console.error('Error: mime type list length >', maxMimeLength);
-        process.exit(1);
+    if ( buf.length > maxMimeLength ) {
+        console.error( 'Error: mime type list length >', maxMimeLength )
+        process.exit( 1 )
     }
-    return buf;
+    return buf
 }
-
-//~ function getMainPageIndex (callback) {
-    //~ auxDb.get(`
-        //~ SELECT
-            //~ u.rowid - 1 AS idx,
-            //~ u.articleId,
-            //~ a.nsUrl
-        //~ FROM urlSorted AS u
-        //~ JOIN articles AS a
-        //~ USING (articleId)
-        //~ WHERE a.nsUrl = ?;
-    //~ `,
-    //~ [ mainPage.article.nsUrl() ],
-    //~ function(err, row) {
-        //~ log( 'getMainPageIndex', mainPage.article.nsUrl(), row );
-        //~ mainPage.urlIndex = row.idx;
-        //~ callback( err );
-    //~ });
-//~ }
 
 function getHeader () {
-    header.articleCount = articleCount;
-    header.clusterCount = ClusterBuilder.count;
-    header.mainPage = mainPage.target || header.mainPage;
+    header.articleCount = articleCount
+    header.clusterCount = ClusterWriter.count
+    header.mainPage = mainPage.target || header.mainPage
 
-    //~ log('Header', 'articleCount', articleCount, 'clusterCount', ClusterBuilder.count, 'mainPage', mainPage);
-    log('Header', header);
+    //~ log( 'Header', 'articleCount', articleCount, 'clusterCount', ClusterWriter.count, 'mainPage', mainPage )
+    log( 'Header', header )
 
-    var buf = Buffer.alloc(headerLength);
-    buf.writeUIntLE(header.magicNumber,     0, 4);
-    buf.writeUIntLE(header.version,         4, 4);
+    var buf = Buffer.alloc( headerLength )
+    buf.writeUIntLE( header.magicNumber,     0, 4 )
+    buf.writeUIntLE( header.version,         4, 4 )
 
-    uuid.v4(null, buf,                      8);
+    uuid.v4( null, buf,                      8 )
 
-    buf.writeUIntLE(header.articleCount,    24, 4);
-    buf.writeUIntLE(header.clusterCount,    28, 4);
+    buf.writeUIntLE( header.articleCount,    24, 4 )
+    buf.writeUIntLE( header.clusterCount,    28, 4 )
 
-    buf.writeUIntLE(header.urlPtrPos,       32, 8);
-    buf.writeUIntLE(header.titlePtrPos,     40, 8);
-    buf.writeUIntLE(header.clusterPtrPos,   48, 8);
-    buf.writeUIntLE(header.mimeListPos,     56, 8);
+    buf.writeUIntLE( header.urlPtrPos,       32, 8 )
+    buf.writeUIntLE( header.titlePtrPos,     40, 8 )
+    buf.writeUIntLE( header.clusterPtrPos,   48, 8 )
+    buf.writeUIntLE( header.mimeListPos,     56, 8 )
 
-    buf.writeUIntLE(header.mainPage,        64, 4);
-    buf.writeUIntLE(header.layoutPage,      68, 4);
+    buf.writeUIntLE( header.mainPage,        64, 4 )
+    buf.writeUIntLE( header.layoutPage,      68, 4 )
 
-    buf.writeUIntLE(header.checksumPos,     72, 8);
+    buf.writeUIntLE( header.checksumPos,     72, 8 )
 
-    return buf;
+    return buf
 }
 
-function stroreHeader(callback) {
-    var buf = Buffer.concat([getHeader(), getMimeTypes()]);
-    var fd = fs.openSync(outPath, 'r+');
-    fs.writeSync( fd, buf, 0, buf.length, 0);
-    fs.close(fd, callback);
+function stroreHeader() {
+    var buf = Buffer.concat([ getHeader(), getMimeTypes() ])
+    var fd = fs.openSync( outPath, 'r+' )
+    fs.writeSync( fd, buf, 0, buf.length, 0 )
+    fs.closeSync( fd )
+    return Promise.resolve()
 }
 
-function calculateFileHash (callback) {
-    var outHash;
-    var hash = crypto.createHash('md5');
-    var stream = fs.createReadStream(outPath);
-    stream.on('data', function (data) {
-        hash.update(data)
+function calculateFileHash () {
+    var outHash
+    var hash = crypto.createHash( 'md5' )
+    var stream = fs.createReadStream( outPath )
+    var resolve
+
+    stream.on( 'data', data => hash.update( data ))
+    stream.on( 'end', () => {
+        outHash = hash.digest()
+        log( 'outHash', outHash )
+        fs.appendFileSync( outPath, outHash )
+        resolve()
     })
-    stream.on('end', function () {
-        outHash = hash.digest();
-        log('outHash', outHash);
-        fs.appendFile(outPath, outHash, callback);
-    })
+
+    return new Promise( r => resolve = r )
 }
 
-function finalise (callback) {
-    async.series([
-            function (cb) { // close the output stream
-                header.checksumPos = out.close(cb);
-            },
-            //~ getMainPageIndex,
-            stroreHeader,
-            calculateFileHash
-            ],
-        callback
-    )
+
+function initialise () {
+    var stat = fs.statSync( srcPath ) // check source
+    if ( ! stat.isDirectory() ) {
+        return Promise.reject( new Error( srcPath + ' is not a directory' ))
+    }
+    var mtdPath = osPath.join( srcPath, 'metadata.csv' )
+    var mtdTxt = null
+    try {
+        mtdTxt = fs.readFileSync( mtdPath, 'utf8' )
+    } catch ( err ) {
+    }
+    if ( mtdTxt ) {
+        var mtdArr = csvParseSync( mtdTxt, { delimiter: '\t' })
+        zimFormated = {
+            metadata: mtdArr,
+            redirects: osPath.join( srcPath, 'redirects.csv' )
+        }
+    }
+
+    out = new Writer( outPath ); // create output file
+    log( 'reserving space for header and mime type list' )
+    out.write( Buffer.alloc( headerLength + maxMimeLength ))
+
+    return createAuxIndex()
+}
+
+//~ function loadArticles () {
+    //~ return loadMetadata()
+    //~ .then( () => Promise.all( fileLoader.start(), loadRedirects() ))
+//~ }
+function loadArticles () {
+    return Promise.coroutine( function* () {
+        yield loadMetadata()
+        yield fileLoader.start()
+        yield loadRedirects()
+    }) ()
+}
+function postProcess () {
+    return Promise.coroutine( function* () {
+        yield ClusterWriter.finish()
+        yield sortArticles()
+        yield resolveRedirects()
+        yield storeUrlIndex()
+        yield storeTitleIndex()
+    }) ()
+}
+
+function finalise () {
+    return Promise.coroutine( function* () {
+        header.checksumPos = yield out.close() // close the output stream
+        yield stroreHeader()
+        yield calculateFileHash()
+    }) ()
 }
 
 function core () {
-    async.series([
-            initialise,
-            loadArticles,
-            //~ loadMetadata,
-            //~ loadFiles,
-            //~ loadRedirects,
-            postProcess,
-            finalise
-        ],
-        function (err) {
-            if (err) {
-                console.trace(err);
-                process.exit(1);
-            }
-            log('Done...');
-        }
-    );
+    return Promise.coroutine( function* () {
+        yield initialise()
+        yield loadArticles()
+        yield postProcess()
+        yield finalise()
+    }) ()
 }
 
 // Mandatory arguments:
@@ -1518,6 +1339,7 @@ function core () {
 function main () {
     argv = yargs.usage( 'Pack a directory into a zim file\nUsage: $0'
                + '\nExample: $0 ' )
+        //~ .boolean( 'optimg' )
         .options({
             'w': {alias: 'welcome', default: 'index.htm'},
             'f': {alias: 'favicon', default: 'favicon.png'},
@@ -1527,42 +1349,46 @@ function main () {
             'c': {alias: 'creator', default: ''},
             'p': {alias: 'publisher', default: ''},
             'v': {alias: 'verbose', type: 'boolean', default: false},
-            'm': {alias: 'minChunkSize', type: 'number', default: Cluster.sizeThreshold / 1024},
+            'm': {alias: 'minChunkSize', type: 'number', default: ClusterSizeThreshold / 1024},
             'x': {alias: 'inflateHtml', type: 'boolean', default: false},
             'u': {alias: 'uniqueNamespace', type: 'boolean', default: false},
             //~ 'r': {alias: 'redirects', default: 'redirects.csv'},
             'r': {alias: 'redirects', default: ''},
             //~ 'i': {alias: 'withFullTextIndex', type:'boolean', default: false},
-            'h': {alias: 'help'}
+            'h': {alias: 'help'},
+            'optimg': {type: 'boolean', default: false},
+            'jpegquality': {type: 'number', default: 60},
         })
-        .help('help')
-        .strict()
-        .argv;
+        .help( 'help' )
+        //~ .strict()
+        .argv
 
-    log(argv);
+    log( argv )
 
-    var pargs = argv._;
+    var pargs = argv._
 
-    while (pargs[0] == '') // if mwoffliner prepends with empty extra parameter(s)
-        pargs.shift();
+    while ( pargs[ 0 ] == '' ) // if mwoffliner prepends with empty extra parameter(s)
+        pargs.shift()
 
-    srcPath = expandHomeDir(pargs[0]);
-    if (argv._[1])
-        outPath = expandHomeDir(pargs[1])
+    srcPath = expandHomeDir( pargs[ 0 ])
+    if ( argv._[ 1 ])
+        outPath = expandHomeDir( pargs[ 1 ])
     else {
-        var parsed = osPath.parse(srcPath);
-        outPath = parsed.base + '.zim';
+        var parsed = osPath.parse( srcPath )
+        outPath = parsed.base + '.zim'
     }
 
-    if (argv.minChunkSize) {
-        Cluster.sizeThreshold = argv.minChunkSize * 1024;
+    if ( argv.minChunkSize ) {
+        ClusterSizeThreshold = argv.minChunkSize * 1024
     }
 
     //~ mainPage = {
         //~ title: argv.welcome
-    //~ };
+    //~ }
 
-    core ();
+    core ()
+    .then( () => log( 'Done...' ))
 }
 
-main ();
+main ()
+;
