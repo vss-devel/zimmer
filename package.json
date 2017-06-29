@@ -1,6 +1,6 @@
 {
   "name": "zimmer",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Zim file packer",
   "main": "zimmer.js",
   "scripts": {
@@ -11,19 +11,24 @@
     "zim",
     "pack"
   ],
- "dependencies": {
-    "async": "*",
-    "expand-home-dir": "*",
-    "lzma-native": "*",
-    "htmlparser2": "*",
-    "domutils": "*",
-    "uuid": "*",
+  "dependencies": {
+    "bluebird": "*",
+    "cheerio": "*",
+    "child-process": "^1.0.2",
     "csv-parse": "*",
     "csv-stringify": "*",
-    "sqlite3": "*",
-    "mmmagic": "*",
-    "mime-types": "*",
+    "expand-home-dir": "*",
+    "fs-extra": "^3.0.1",
+    "generic-pool": "^3.1.7",
+    "lzma-native": "*",
     "mime-db": "*",
+    "mime-types": "*",
+    "mmmagic": "*",
+    "mozjpeg": "*",
+    "mz": "^2.6.0",
+    "sharp": "^0.17.3",
+    "sqlite": "^2.8.0",
+    "uuid": "*",
     "yargs": "*"
   },
   "author": "Vadim Shlykahov",
