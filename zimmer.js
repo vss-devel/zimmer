@@ -54,6 +54,7 @@ const sharp = require( 'sharp' )
 
 const genericPool = require( 'generic-pool' )
 const mozjpeg = require( 'mozjpeg' )
+const childProcess = require('child_process')
 
 const mimeMagic = new magic.Magic( magic.MAGIC_MIME_TYPE )
 
@@ -184,7 +185,7 @@ function writeUIntLE( buf, number, offset, byteLength ) {
 
 function spawn ( command, args, input ) { // after https://github.com/panosoft/spawn-promise
 
-    var child = child_process.spawn( command, args )
+    var child = childProcess.spawn( command, args )
 
     // Capture errors
     var errors = {}
@@ -203,7 +204,8 @@ function spawn ( command, args, input ) { // after https://github.com/panosoft/s
     child.stdout.on( 'data', data => buffers.push( data ))
 
     // input
-    child.stdin.end( input )
+    child.stdin.write( input )
+    child.stdin.end()
 
     // Run
     return new Promise( resolve => {
@@ -212,10 +214,10 @@ function spawn ( command, args, input ) { // after https://github.com/panosoft/s
     })
     .then( exitCode => {
         if ( exitCode !== 0 )
-            return Promise.reject( new Error( `Command failed: ${exitCode}` ))
+            return Promise.reject( new Error( `Command failed: ${ exitCode } ${ JSON.stringify( errors ) }` ))
 
-        if ( Object.keys( errors ).length !== 0 )
-            return Promise.reject( new Error( JSON.stringify( errors )))
+        //~ if ( Object.keys( errors ).length !== 0 )
+            //~ return Promise.reject( new Error( JSON.stringify( errors )))
 
         return Buffer.concat( buffers )
     })
@@ -252,7 +254,7 @@ class Writer {
 
             const saturated = ! this.stream.write( data )
             if ( saturated ) {
-                this.stream.once( 'drain', () => this.queue.release( client ))
+                this.stream.once( 'drain', () => this.queue.release( token ))
             } else {
                 this.queue.release( token )
             }
@@ -764,44 +766,49 @@ class File extends Article {
     }
 
     processJpeg ( data ) {
-        return spawn( mozjpeg, [ '-quality', argv.jpegquality ], data )
+        return spawn(
+            mozjpeg,
+            [ '-quality', argv.jpegquality, data.length < 20000 ? '-baseline' : '-progressive' ],
+            data
+        )
     }
 
     processImage ( data ) {
         return Promise.coroutine( function* () {
             const image = sharp( data )
-            let toJpeg = true
+            let forceJpeg = false
 
             const metadata = yield image.metadata()
 
             if ( metadata.hasAlpha && metadata.channels == 1 ) {
                 log( 'metadata.channels == 1', this.url )
+            } else if ( metadata.hasAlpha && metadata.channels > 1 ) {
+                if ( data.length > 20000 ) {
+                    // Is this rather opaque?
+                    const alpha = yield image
+                        .clone()
+                        .extractChannel( metadata.channels - 1 )
+                        .raw()
+                        .toBuffer()
+
+                    const opaqueAlpha = Buffer.alloc( alpha.length, 0xff )
+                    const isOpaque = alpha.equals( opaqueAlpha )
+
+                    if ( isOpaque ) { // convert to JPEG
+                        log( 'isOpaque', this.url )
+                        return this.processJpeg ( data )
+                    }
+                    forceJpeg = isOpaque
+                }
             }
-
-            if ( metadata.hasAlpha && metadata.channels > 1 && this.data.length > 20000 ) {
-                const alpha = yield image
-                    .clone()
-                    .extractChannel( metadata.channels - 1 )
-                    .raw()
-                    .toBuffer()
-
-                const opaqueAlpha = Buffer.alloc( alpha.length, 0xff )
-                const isOpaque = alpha.equals( opaqueAlpha )
-
-                isOpaque && log( 'isOpaque', this.url )
-
-                toJpeg = isOpaque
-            }
-
-            if ( toJpeg ) {
-                image.jpeg({
-                    force: true,
-                    quality: argv.jpegquality,
-                    progressive: this.data.length < 20000 ? false : true,
-                })
-                this.mimeType = 'image/jpeg'
-            }
-
+/*
+            image.jpeg({
+                force: forceJpeg,
+                quality: argv.jpegquality,
+                progressive: data.length < 20000 ? false : true,
+            })
+            forceJpeg && (this.mimeType = 'image/jpeg')
+*/
             return image.toBuffer()
         }).call( this )
     }
@@ -809,9 +816,9 @@ class File extends Article {
     load () {
         return Promise.coroutine( function* () {
             let data = yield fs.readFile( fullPath( this.path ))
-            if ( argv.inflateHtml && this.mimeType == 'text/html' )
+            if ( argv.inflateHtml && this.mimeType == 'text/html' ) {
                 data = yield zlib.inflate( data ) // inflateData
-
+            }
             if ( ! this.mimeType ) { // mimeFromData
                 this.mimeType = yield new Promise( resolve =>
                     mimeMagic.detect( data, ( err, mimeType ) => {
@@ -826,12 +833,12 @@ class File extends Article {
                     return this.processHtml( data )
                 //~ case 'image/gif':
                 case 'image/png':
-                    //~ if ( argv.optimg )
-                        //~ return this.processImage( data )
-                case 'image/jpeg':
                     if ( argv.optimg )
                         return this.processImage( data )
-                        //~ return this.processJpeg()
+                case 'image/jpeg':
+                    if ( argv.optimg )
+                        //~ return this.processImage( data )
+                        return this.processJpeg( data )
                 default:
                     return data
             }
