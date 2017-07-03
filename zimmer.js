@@ -964,7 +964,7 @@ function loadRedirects () {
         var parser = csvParse(
             {
                 delimiter: '\t',
-                columns:[ 'ns','path','title','target' ]
+                columns:[ 'ns', 'path', 'title', 'target', 'targetFragment' ]
             }
         )
         parser.on( 'error', function ( err ) {
@@ -972,20 +972,23 @@ function loadRedirects () {
             throw err
         })
         parser.on( 'end', function () {
-            log( 'loadRedirects finished' )
+            log( 'loadRedirects end' )
             finished = true
+            parser.emit( 'readable' )
         })
 
         log( 'loadRedirects start' )
         inp.pipe( parser )
 
         function getRow () {
-            var row = parser.read()
-            if ( row || finished ) {
-                return Promise.resolve( row )
-            } else {
-                return new Promise( resolve => parser.once( 'readable', () => resolve( getRow())))
-            }
+            return new Promise( resolve => {
+                var row = parser.read()
+                if ( row || finished ) {
+                    resolve( row )
+                } else {
+                    parser.once( 'readable', () => resolve( getRow()))
+                }
+            })
         }
 
         while ( true ) {
