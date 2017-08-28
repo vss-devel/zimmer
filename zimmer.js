@@ -47,16 +47,17 @@ const csvParse = require( 'csv-parse' )
 const csvParseSync = require( 'csv-parse/lib/sync' )
 const zlib = require( 'mz/zlib' )
 const sqlite = require( 'sqlite' )
-const mimeDb = require( 'mime-db' )
-const mime = require( 'mime-types' )
-const magic = require( 'mmmagic' )
 const sharp = require( 'sharp' )
 
 const genericPool = require( 'generic-pool' )
 const mozjpeg = require( 'mozjpeg' )
 const childProcess = require('child_process')
+const isAnimated = require('animated-gif-detector')
 
-const mimeMagic = new magic.Magic( magic.MAGIC_MIME_TYPE )
+const mimeDb = require( 'mime-db' )
+const mimeTypes = require( 'mime-types' )
+const mmmagic = require( 'mmmagic' )
+const mimeMagic = new mmmagic.Magic( mmmagic.MAGIC_MIME_TYPE )
 
 const cpuCount = os.cpus().length
 
@@ -66,18 +67,14 @@ var srcPath
 var outPath
 var out // output file writer
 
-var zIndex
+var indexerDb
 var dirQueue
 
 var articleCount = 0
-var articleId = 0
-var redirectCount = 0
-var resolvedRedirectCount = 0
 
-var zimFormated = false
+let preProcessed = false
 
-var mainPage
-var deadEndTarget
+var mainPage = {}
 
 // -    layout, eg. the LayoutPage, CSS, favicon.png (48x48), JavaScript and images not related to the articles
 // A    articles - see Article Format
@@ -111,12 +108,22 @@ function fullPath ( path ) {
     return osPath.join( srcPath, path )
 }
 
-function getMimeType ( path, realPath ) {
-    var mType = mime.lookup( realPath || path )
+function mimeFromPath ( path ) {
+    var mType = mimeTypes.lookup( path )
     if ( mType == null ) {
-        console.error( 'No mime type found', path, realPath )
+        console.error( 'No mime type found', path )
     }
     return mType
+}
+
+function mimeFromData ( data ) {
+    return new Promise(( resolve, reject ) =>
+        mimeMagic.detect( data, ( error, mimeType ) => {
+            if ( error )
+                return reject( error )
+            return resolve( mimeType )
+        })
+    )
 }
 
 var REDIRECT_MIME = '@REDIRECT@'
@@ -124,9 +131,12 @@ var LINKTARGET_MIME = '@LINKTARGET@'
 var DELETEDENTRY_MIME = '@DELETEDENTRY@'
 
 var mimeTypeList = []
-var mimeTypeCounter = []
 
 var maxMimeLength = 512
+
+function mimeFromIndex ( idx ) {
+    return mimeTypeList[ idx ]
+}
 
 function mimeTypeIndex ( mimeType ) {
     if ( mimeType == null ) {
@@ -139,18 +149,15 @@ function mimeTypeIndex ( mimeType ) {
         return 0xfffe
     if ( mimeType == DELETEDENTRY_MIME )
         return 0xfffd
-    var idx = mimeTypeList.indexOf( mimeType )
-    if ( idx != -1 ) {
-        mimeTypeCounter[ idx ]++
-    } else {
+    let idx = mimeTypeList.indexOf( mimeType )
+    if ( idx == -1 ) {
         idx = mimeTypeList.length
         mimeTypeList.push( mimeType )
-        mimeTypeCounter.push( 1 )
     }
     return idx
 }
 
-function getNameSpace( mimeType ) {
+function getNameSpace ( mimeType ) {
     if ( argv.uniqueNamespace )
         return 'A'
     if ( !mimeType )
@@ -184,7 +191,6 @@ function writeUIntLE( buf, number, offset, byteLength ) {
 }
 
 function spawn ( command, args, input ) { // after https://github.com/panosoft/spawn-promise
-
     var child = childProcess.spawn( command, args )
 
     // Capture errors
@@ -223,6 +229,38 @@ function spawn ( command, args, input ) { // after https://github.com/panosoft/s
     })
 }
 
+function cvsReader ( path, options ) {
+    let finished = false
+    const inp = fs.createReadStream( path )
+    const parser = csvParse( options )
+
+    parser.on( 'error', function ( err ) {
+        console.error( 'cvsReader ' + err.message )
+        throw err
+    })
+    parser.on( 'end', function () {
+        log( 'cvsReader end', path )
+        finished = true
+        parser.emit( 'readable' )
+    })
+
+    log( 'cvsReader start', path )
+    inp.pipe( parser )
+
+    function getRow () {
+        return new Promise( resolve => {
+            const row = parser.read()
+            if ( row || finished ) {
+                resolve( row )
+            } else {
+                parser.once( 'readable', () => resolve( getRow()))
+            }
+        })
+    }
+
+    return getRow
+}
+
 //
 // Writer
 //
@@ -239,7 +277,7 @@ class Writer {
 
         this.queue = genericPool.createPool(
             {
-                create () { return Promise.resolve( Symbol( )) },
+                create () { return Promise.resolve( Symbol() ) },
                 destroy ( resource ) { return Promise.resolve() },
             },
             {}
@@ -286,15 +324,15 @@ var ClusterSizeThreshold = 4 * 1024 * 1024
 // ClusterSizeThreshold = 2 * 1024
 
 class Cluster {
-    constructor ( ordinal, compressible ) {
-        this.ordinal = ordinal
+    constructor ( id, compressible ) {
+        this.id = id
         this.compressible = compressible
         this.blobs = []
         this.size = 0
     }
 
     append ( data ) {
-        var ordinal = this.ordinal
+        var id = this.id
         var blobNum = this.blobs.length
         if ( blobNum != 0 && this.size + data.length > ClusterSizeThreshold )
             return false
@@ -331,7 +369,7 @@ class Cluster {
             offsets.writeUIntLE( blobOffset, i * 4, 4 )
             blobOffset += this.blobs[ i ].length
         }
-        //~ log( this.ordinal,'generate blob offsets', nBlobs, offsets.length, i, blobOffset )
+        //~ log( this.id,'generate blob offsets', nBlobs, offsets.length, i, blobOffset )
         offsets.writeUIntLE( blobOffset, i * 4, 4 ) // final offset
 
         // join offsets and article data
@@ -340,7 +378,7 @@ class Cluster {
         var rawSize = data.length
 
         var compression = this.compressible ? 4 : 0
-        var ordinal = this.ordinal
+        var id = this.id
 
         return Promise.coroutine( function* () {
             if ( compression ) {
@@ -349,14 +387,14 @@ class Cluster {
                 log( 'Cluster lzma compressed' )
             }
 
-            log( 'Cluster write', ordinal, compression )
+            log( 'Cluster write', id, compression )
             const offset = yield out.write( Buffer.concat([ Buffer.from([ compression ]), data ]))
 
-            log( 'Cluster saved', ordinal, offset )
-            return zIndex.run(
-                'INSERT INTO clusters (ordinal, offset) VALUES (?,?)',
+            log( 'Cluster saved', id, offset )
+            return indexerDb.run(
+                'INSERT INTO clusters (id, offset) VALUES (?,?)',
                 [
-                    ordinal,
+                    id,
                     offset
                 ]
             )
@@ -384,7 +422,7 @@ var ClusterWriter = {
 
         var compressible = ClusterWriter.isCompressible( mimeType, data, id )
         var cluster = ClusterWriter[ compressible ]
-        var clusterNum = cluster.ordinal
+        var clusterNum = cluster.id
         var blobNum = cluster.append( data )
 
         if ( blobNum === false ) { // store to a new cluster
@@ -404,11 +442,10 @@ var ClusterWriter = {
     },
 
     isCompressible: function ( mimeType, data, id ) {
-        //~ log( 'isCompressible', this )
         if ( data == null || data.length == 0 )
             return false
         if ( !mimeType ) {
-            console.trace( 'Article.prototype.isCompressible mimeType', mimeType, id )
+            console.error( 'isCompressible !mimeType', mimeType, data, id )
             process.exit( 1 )
         }
         if ( mimeType == 'image/svg+xml' || mimeType.split( '/' )[ 0 ] == 'text' )
@@ -429,7 +466,7 @@ var ClusterWriter = {
             SELECT
                 offset
             FROM clusters
-            ORDER BY ordinal
+            ORDER BY id
             ;
             `,
             8, 'offset', ClusterWriter.count, 'storeClusterIndex'
@@ -448,52 +485,73 @@ var ClusterWriter = {
     },
 }
 
+class NoProcessingRequired extends Error {
+    // For non-error promise rejection
+}
+
 //
-// Article
+// Item
 //
-class Article {
-    constructor ( path, mimeType, nameSpace, title, data ) {
-        if ( ! path )
-            return
-        this.mimeType = mimeType
-        this.nameSpace = nameSpace
-        this.url = path
-        this.title = title || ''
-        this.data = data
-        this.ordinal = null
-        this.dirEntry = null
-        this.revision = 0
-        this.articleId = ++ articleId
-    }
-
-    nsUrl () {
-        return this.nameSpace + this.url
-    }
-
-    nsTitle () {
-        return this.nameSpace + ( this.title || this.url )
-    }
-
-    storeData ( data ) {
-        if ( data == null )
-            return Promise.resolve()
-        if ( !( data instanceof Buffer )) {
-            data = Buffer.from( data )
-        }
-        return ClusterWriter.append( this.mimeType, data, this.url )
-    }
-
-    load () {
-        return Promise.resolve( this.data )
+class Item {
+    constructor ( params ) {
+        Object.assign( this, {
+            nameSpace: null,
+            path: null,
+            title: '',
+            mimeType: null,
+            revision: 0,
+            dirEntry: null,
+            id: null,
+        })
+        Object.assign( this, params )
     }
 
     process () {
-        log( 'Article process', this.url )
+        //~ log( 'Item process', this.path )
 
-        return this.load()
-        .then( data => this.storeData( data ))
-        .then( ([ clusterIdx, blobIdx ]) => this.storeDirEntry( clusterIdx, blobIdx ))
-        .then( () => this.indexArticle())
+        return this.storeDirEntry()
+    }
+
+    urlKey () {
+        return this.nameSpace + this.path
+    }
+
+    titleKey () {
+        return this.nameSpace + ( this.title || this.path )
+    }
+
+    mimeId () {
+        return mimeTypeIndex( this.mimeType )
+    }
+
+    getId () {
+        if ( ! this.id )
+            this.id = this.saveItemIndex()
+        return Promise.resolve( this.id )
+    }
+
+    saveItemIndex () {
+        if ( ! this.path ) {
+            console.trace( 'Item no url', this )
+            process.exit( 1 )
+        }
+
+        const row = [
+            this.urlKey(),
+            this.titleKey(),
+            this.revision,
+            this.mimeId(),
+        ]
+
+        return indexerDb.run(
+            'INSERT INTO articles ( urlKey, titleKey, revision, mimeId ) VALUES ( ?,?,?,? )',
+            row
+        )
+        .then( res => {
+            const id = res.stmt.lastID
+            log( 'saveItemIndex', id, this )
+            return id
+        })
     }
 
     // Article Entry
@@ -508,85 +566,75 @@ class Article {
     // title           string      n/a     zero terminated     string with an title as refered in the Title pointer list or empty; in case it is empty, the URL is used as title
     // parameter       data        see parameter len   (not used) extra parameters
 
-    storeDirEntry ( clusterIdx, blobIdx ) {
-        // this also serves redirect dirEntry, which is shorter in 4 bytes
-        var needsSave = clusterIdx != null
-
-        if ( ! needsSave )
+    storeDirEntry ( clusterIdx, blobIdx, redirectTarget ) {
+        if ( clusterIdx == null ) {
+            console.error( 'storeDirEntry error: clusterIdx == null', this )
+            pprocess.exit( 1 )
             return Promise.resolve()
+        }
 
-        var shortEntry = blobIdx == null
+        articleCount++
 
-        var buf = Buffer.allocUnsafe( shortEntry ? 12 : 16 )
-        var mimeIndex = mimeTypeIndex( this.mimeType )
+        const isRedirect = redirectTarget != null // redirect dirEntry is shorter in 4 bytes
+        var buf = Buffer.allocUnsafe( isRedirect ? 12 : 16 )
+        var mimeIndex = this.mimeId()
 
-        log( 'storeDirEntry', clusterIdx, blobIdx, mimeIndex, this )
+        log( 'storeDirEntry', mimeIndex, this )
 
         buf.writeUIntLE( mimeIndex,     0, 2 )
         buf.writeUIntLE( 0,             2, 1 ) // parameters length
         buf.write( this.nameSpace,      3, 1 )
-        buf.writeUIntLE( this.revision, 4, 4 ) // revision
-        buf.writeUIntLE( clusterIdx,    8, 4 ) // or redirect target article index
-        if ( ! shortEntry )
+        buf.writeUIntLE( this.revision, 4, 4 )
+        buf.writeUIntLE( clusterIdx || redirectTarget || 0, 8, 4 ) // or redirect target article index
+        if ( ! isRedirect )
             buf.writeUIntLE( blobIdx,  12, 4 )
 
-        var urlBuf = Buffer.from( this.url + '\0' )
+        var urlBuf = Buffer.from( this.path + '\0' )
         var titleBuf = Buffer.from( this.title + '\0' )
 
         return out.write( Buffer.concat([ buf, urlBuf, titleBuf ]))
         .then( offset => {
-            log( 'storeDirEntry done', offset, buf.length, this.url )
+            log( 'storeDirEntry done', offset, buf.length, this.path )
             return this.dirEntry = offset
         })
-        .then( offset => this.indexDirEntry( offset ))
+        .then( offset => this.saveDirEntryIndex( offset ))
     }
 
-    indexDirEntry ( offset ) {
-        log( 'indexDirEntry', this.articleId, offset, this.url )
-        return zIndex.run(
-            'INSERT INTO dirEntries (articleId, offset) VALUES (?,?)',
-            [
-                this.articleId,
-                offset,
-            ]
-        )
-    }
-
-    indexArticle () {
-        if ( !this.url ) {
-            console.trace( 'Article no url', this )
-            process.exit( 1 )
-        }
-        articleCount++
-
-        return zIndex.run(
-            'INSERT INTO articles (articleId, nsUrl, nsTitle) VALUES (?,?,?)',
-            [
-                this.articleId,
-                this.nsUrl(),
-                this.nsTitle()
-            ]
-        )
+    saveDirEntryIndex ( offset ) {
+        return this.getId()
+        .then( id => {
+            log( 'saveDirEntryIndex', id, offset, this.path )
+            return indexerDb.run(
+                'INSERT INTO dirEntries (id, offset) VALUES (?,?)',
+                [
+                    id,
+                    offset,
+                ]
+            )
+            .catch( err => {
+                console.error( 'saveDirEntryIndex error', err, this )
+                process.exit( 1 )
+            })
+        })
     }
 }
 
 //
 // class Linktarget
 //
-class Linktarget extends Article {
+class Linktarget extends Item {
     constructor ( path, nameSpace, title ) {
-        super( path, LINKTARGET_MIME, nameSpace, title )
+        super({
+            path,
+            nameSpace,
+            title,
+            mimeType: LINKTARGET_MIME,
+        })
         log( 'Linktarget', nameSpace, path, this )
     }
 
-    process () {
-        log( 'Linktarget.prototype.process', this.url )
-        return this.storeDirEntry()
-        .then( () => this.indexArticle())
-    }
-
     storeDirEntry () {
-        return super.storeDirEntry( true, true )
+        return super.storeDirEntry( 0, 0 )
     }
 }
 
@@ -595,54 +643,81 @@ class Linktarget extends Article {
 //
 class DeletedEntry extends Linktarget {
     constructor ( path, nameSpace, title ) {
-        super( path, DELETEDENTRY_MIME, nameSpace, title )
+        super({
+            path,
+            nameSpace,
+            title,
+            mimeType: DELETEDENTRY_MIME,
+        })
         log( 'DeletedEntry', nameSpace, path, this )
+    }
+}
+
+//
+// class TargetItem
+//
+class TargetItem extends Item {
+    constructor ( params ) {
+        params.fragment = params.fragment === undefined ? null : params.fragment;
+        super( params )
     }
 }
 
 //
 // class Redirect
 //
-class Redirect extends Article {
-    constructor ( path, nameSpace, title, redirect, redirectNameSpace ) {
-        super( path, REDIRECT_MIME, nameSpace, title )
+class Redirect extends Item {
+    constructor ( params ) {
+        // params: path, nameSpace, title, to, revision
+        // to: path, nameSpace, fragment
+        let to = params.to
+        delete params.to
 
-        this.redirect = ( redirectNameSpace || nameSpace ) + redirect
-        log( 'Redirect', nameSpace, path, this.redirect, this )
-        redirectCount ++
+        params.mimeType = REDIRECT_MIME
+
+        super( params )
+
+        if ( typeof to == 'string' )
+            to = { path: to }
+        to.nameSpace = to.nameSpace || this.nameSpace
+
+        this.target = new TargetItem( to )
+        log( 'Redirect', this.nameSpace, this.path, to, this )
     }
 
     process () {
-        return this.indexArticle()
-        .then( () => this.toRedirectIndex() )
+        return this.saveRedirectIndex()
     }
 
-    toRedirectIndex () {
-        return zIndex.run(
-            'INSERT INTO redirects (articleId, redirect) VALUES (?,?)',
-            [
-                this.articleId,
-                this.redirect
-            ]
-        )
+    saveRedirectIndex () {
+        return this.getId()
+        .then( id => {
+            return indexerDb.run(
+                'INSERT INTO redirects (id, targetKey, fragment) VALUES (?,?,?)',
+                [
+                    id,
+                    this.target.urlKey(),
+                    this.target.fragment,
+                ]
+            )
+        })
     }
 }
 
 //
 // class ResolvedRedirect
 //
-class ResolvedRedirect extends Article {
-    constructor ( articleId, nameSpace, url, title, target ) {
-        super( url, REDIRECT_MIME, nameSpace, title )
+class ResolvedRedirect extends Item {
+    constructor ( id, nameSpace, path, title, target, revision ) {
+        super({
+            path,
+            nameSpace,
+            title,
+            mimeType: REDIRECT_MIME,
+            revision,
+        })
         this.target = target
-        this.articleId = articleId
-    }
-
-    process () {
-        log( 'ResolvedRedirect.prototype.process', this.url )
-        resolvedRedirectCount ++
-
-        return this.storeDirEntry()
+        this.id = id
     }
 
     storeDirEntry () {
@@ -657,32 +732,197 @@ class ResolvedRedirect extends Article {
         // title           string  n/a     zero terminated     string with an title as refered in the Title pointer list or empty; in case it is empty, the URL is used as title
         // parameter       data    see parameter len   (not used) extra parameters
 
-        // redirect dirEntry shorter on one 4 byte field
-        return super.storeDirEntry( this.target, null )
+        // redirect dirEntry shorter on 4 byte field
+        return super.storeDirEntry( 0, 0, this.target )
+    }
+}
+
+//
+// DataItem
+//
+class DataItem extends Item {
+    constructor ( params ) {
+        params.data = params.data === undefined ? null : params.data;
+        super( params )
+    }
+
+    process () {
+        //~ log( 'DataItem process', this.path )
+        return this.store()
+        .then( () => super.process())
+        .catch( err => {
+            if ( err instanceof NoProcessingRequired )
+                return
+            console.error( 'Item process error', this.path, err )
+            process.exit( 1 )
+        })
+    }
+
+    store () {
+        return this.getData()
+        .then( data => {
+            if ( data == null ) {
+                console.error( 'DataItem.store error: data == null', this )
+                process.exit( 1 )
+            }
+            if ( !( data instanceof Buffer )) {
+                data = Buffer.from( data )
+            }
+            return ClusterWriter.append( this.mimeType, data, this.path )
+            .then( ([ clusterIdx, blobIdx ]) => Object.assign( this, { clusterIdx, blobIdx }))
+        })
+    }
+
+    getData () {
+        return Promise.resolve( this.data )
+    }
+
+    storeDirEntry () {
+        return super.storeDirEntry( this.clusterIdx, this.blobIdx )
     }
 }
 
 //
 // class File
 //
-class File extends Article {
+class File extends DataItem {
+    //~ id ,
+    //~ mimeId ,
+    //~ revision ,
+    //~ urlKey ,
+    //~ titleKey
+    getData () {
+        if ( this.data == null )
+            this.data = fs.readFile( this.srcPath())
+            .then( data => this.preProcess( data ))
 
-    constructor ( path, realPath ) {
-        var url = path
-        var mimeType = getMimeType( path, realPath )
-        var nameSpace
-        if ( zimFormated ) {
-            nameSpace = path[ 0 ]
-            url = path.slice( 2 )
-            path = realPath || path
+        return Promise.resolve( this.data )
+    }
+
+    srcPath () {
+        return fullPath( this.nameSpace + '/' + this.path )
+    }
+
+    preProcess ( data ) {
+        switch ( this.mimeType ) {
+            //~ case 'image/gif':
+            case 'image/png':
+                return this.processImage( data )
+            case 'image/jpeg':
+                return this.processJpeg( data )
+            default:
+                return data
         }
-        super( url, mimeType, nameSpace )
-        this.path = path
-        //~ log( this )
+    }
+
+    processJpeg ( data ) {
+        if ( ! argv.optimg )
+            return data
+        this.mimeType = 'image/jpeg'
+        return spawn(
+            mozjpeg,
+            [ '-quality', argv.jpegquality, data.length < 20000 ? '-baseline' : '-progressive' ],
+            data
+        )
+    }
+
+    processImage ( data ) {
+        if ( ! argv.optimg )
+            return data
+        return Promise.coroutine( function* () {
+
+            const image = sharp( data )
+
+            const metadata = yield image.metadata()
+
+            if ( metadata.format == 'gif' && isAnimated( data ))
+                return data
+
+            if ( metadata.hasAlpha && metadata.channels == 1 ) {
+                log( 'metadata.channels == 1', this.path )
+            } else if ( metadata.hasAlpha && metadata.channels > 1 ) {
+                if ( data.length > 20000 ) {
+                    // Is this rather opaque?
+                    const alpha = yield image
+                        .clone()
+                        .extractChannel( metadata.channels - 1 )
+                        .raw()
+                        .toBuffer()
+
+                    const opaqueAlpha = Buffer.alloc( alpha.length, 0xff )
+                    const isOpaque = alpha.equals( opaqueAlpha )
+
+                    if ( isOpaque ) { // convert to JPEG
+                        log( 'isOpaque', this.path )
+                        if ( metadata.format == 'gif' )
+                            data = yield image.toBuffer()
+                        return this.processJpeg ( data )
+                    }
+                }
+            }
+            if ( metadata.format == 'gif' )
+                return data
+            return image.toBuffer()
+        }).call( this )
+    }
+}
+
+//
+// class RawFile
+//
+class RawFile extends File {
+    constructor ( path ) {
+        const mimeType = mimeFromPath( path )
+        const nameSpace = getNameSpace( mimeType )
+        super({
+            path,
+            mimeType,
+            nameSpace,
+        })
+    }
+
+    srcPath () {
+        return fullPath( this.path )
+    }
+
+    preProcess ( data ) {
+        return Promise.coroutine( function* () {
+            if ( ! this.mimeType ) {
+                this.mimeType = yield mimeFromData( data )
+                this.nameSpace = this.nameSpace || getNameSpace( this.mimeType )
+            }
+            if ( argv.inflateHtml && this.mimeType == 'text/html' )
+                data = yield zlib.inflate( data ) // inflateData
+            return data
+        }).call( this )
+        .then( data => this.preProcessHtml( data ))
+        .then( data => super.preProcess( data ))
+    }
+
+    preProcessHtml ( data ) {
+        const dom = ( this.mimeType == 'text/html' ) && cheerio.load( data.toString())
+        if ( dom ) {
+            const title = dom( 'title' ).text()
+            this.title = this.title || title
+            const redirectTarget = this.isRedirect( dom )
+            if ( redirectTarget ) { // convert to redirect
+                const redirect = new Redirect({
+                    path: this.path,
+                    nameSpace: this.nameSpace,
+                    title: this.title,
+                    to: redirectTarget,
+                })
+                return redirect.process()
+                .then( () => Promise.reject( new NoProcessingRequired()))
+            }
+            if ( this.alterLinks( dom ))
+                data = Buffer.from( dom.html())
+        }
+        return Promise.resolve( data )
     }
 
     alterLinks ( dom ) {
-        var base = '/' + this.url
+        var base = '/' + this.path
         var nsBase = '/' + this.nameSpace + base
         var baseSplit = nsBase.split( '/' )
         var baseDepth = baseSplit.length - 1
@@ -692,13 +932,13 @@ class File extends Article {
             try {
                 var link = url.parse( elem.attribs[ attr ], true, true )
             } catch ( err ) {
-                console.warn( 'alterLinks', err.message, elem.attribs[ attr ], 'at', base )
+                console.warn( 'alterLinks error', err.message, elem.attribs[ attr ], 'at', base )
                 return
             }
             var path = link.pathname
             if ( link.protocol || link.host || ! path )
                 return
-            var nameSpace = getNameSpace( getMimeType( path ))
+            var nameSpace = getNameSpace( mimeFromPath( path ))
             if ( ! nameSpace )
                 return
 
@@ -713,7 +953,7 @@ class File extends Article {
                 to.unshift( '..' )
             }
             var relPath = to.join( '/' )
-            log( 'alterLinks', nsBase, decodeURI( path ), decodeURI( absPath ), decodeURI( relPath ))
+            //~ log( 'alterLinks', nsBase, decodeURI( path ), decodeURI( absPath ), decodeURI( relPath ))
 
             link.pathname = relPath
             elem.attribs[ attr ] = url.format( link )
@@ -739,110 +979,16 @@ class File extends Article {
         if ( ! splited[ 1 ] )
             return null
 
-        log( 'File.prototype.getRedirect', this.url, splited)
+        log( 'File.prototype.getRedirect', this.path, splited)
         var link = url.parse( splited[ 1 ].split( '=', 2 )[ 1 ], true, true )
         if ( link.protocol || link.host || ! link.pathname || link.pathname[ 0 ] =='/' )
             return null
 
-        var target = decodeURIComponent( link.pathname )
-        return target
-    }
-
-    processHtml ( data ) {
-        var dom = cheerio.load( data.toString())
-        if ( dom ) {
-            var title = dom( 'title' ).text()
-            this.title = this.title || title
-            var redirect = this.isRedirect ( dom )
-            if ( redirect ) { // convert to redirect
-                this.data = null
-                var redirect = new Redirect( this.path, this.nameSpace, this.title, redirect )
-                return redirect.process()
-            }
-            if ( ! zimFormated && this.alterLinks( dom ))
-                data = Buffer.from( dom.html())
+        var target = {
+            path: decodeURIComponent( link.pathname ),
+            fragment: link.hash,
         }
-        return data
-    }
-
-    processJpeg ( data ) {
-        return spawn(
-            mozjpeg,
-            [ '-quality', argv.jpegquality, data.length < 20000 ? '-baseline' : '-progressive' ],
-            data
-        )
-    }
-
-    processImage ( data ) {
-        return Promise.coroutine( function* () {
-            const image = sharp( data )
-            let forceJpeg = false
-
-            const metadata = yield image.metadata()
-
-            if ( metadata.hasAlpha && metadata.channels == 1 ) {
-                log( 'metadata.channels == 1', this.url )
-            } else if ( metadata.hasAlpha && metadata.channels > 1 ) {
-                if ( data.length > 20000 ) {
-                    // Is this rather opaque?
-                    const alpha = yield image
-                        .clone()
-                        .extractChannel( metadata.channels - 1 )
-                        .raw()
-                        .toBuffer()
-
-                    const opaqueAlpha = Buffer.alloc( alpha.length, 0xff )
-                    const isOpaque = alpha.equals( opaqueAlpha )
-
-                    if ( isOpaque ) { // convert to JPEG
-                        log( 'isOpaque', this.url )
-                        return this.processJpeg ( data )
-                    }
-                    forceJpeg = isOpaque
-                }
-            }
-/*
-            image.jpeg({
-                force: forceJpeg,
-                quality: argv.jpegquality,
-                progressive: data.length < 20000 ? false : true,
-            })
-            forceJpeg && (this.mimeType = 'image/jpeg')
-*/
-            return image.toBuffer()
-        }).call( this )
-    }
-
-    load () {
-        return Promise.coroutine( function* () {
-            let data = yield fs.readFile( fullPath( this.path ))
-            if ( argv.inflateHtml && this.mimeType == 'text/html' ) {
-                data = yield zlib.inflate( data ) // inflateData
-            }
-            if ( ! this.mimeType ) { // mimeFromData
-                this.mimeType = yield new Promise( resolve =>
-                    mimeMagic.detect( data, ( err, mimeType ) => {
-                        log( 'File  mimeMagic.detect', err, mimeType, this.url )
-                        resolve( err ? Promise.reject( err ) : mimeType )
-                    })
-                )
-            }
-            this.nameSpace = this.nameSpace || getNameSpace( this.mimeType )
-            switch ( this.mimeType ) {
-                case 'text/html':
-                    return this.processHtml( data )
-                //~ case 'image/gif':
-                case 'image/png':
-                    if ( argv.optimg )
-                        return this.processImage( data )
-                case 'image/jpeg':
-                    if ( argv.optimg )
-                        //~ return this.processImage( data )
-                        return this.processJpeg( data )
-                default:
-                    return data
-            }
-        }).call( this )
+        return target
     }
 }
 
@@ -863,7 +1009,7 @@ class File extends Article {
 // Counter         no      Number of non-redirect entries per mime-type    image/jpeg=5;image/gif=3;image/png=2;...
 
 function loadMetadata () {
-    var metadata = zimFormated.metadata || [
+    const metadata = [
         [ 'Title', argv.title ],
         [ 'Creator', argv.creator ],
         [ 'Publisher', argv.publisher ],
@@ -881,24 +1027,64 @@ function loadMetadata () {
         var val = item[ 1 ]
         switch ( name ) {
             case 'mainpage':
-                article  = mainPage = new Redirect( 'mainpage', '-', null, val, 'A' )
+                article  = mainPage = new Redirect({
+                    path: 'mainpage',
+                    nameSpace: '-',
+                    to: { path: val, nameSpace: 'A' }
+                })
                 break
             case 'logo':
-                article  = new Redirect( 'favicon', '-', null, val, 'I' )
+                article  = new Redirect({
+                    path: 'favicon',
+                    nameSpace: '-',
+                    to: { path: val, nameSpace: 'I' }
+                })
                 break
             default:
-                article = new Article( name, 'text/plain', 'M', null, val )
+                article = new DataItem({
+                    path: name,
+                    mimeType: 'text/plain',
+                    nameSpace: 'M',
+                    data: val
+                })
         }
         done.push( article.process())
     })
 
-    deadEndTarget = new Linktarget ( 'deadend', '-' )
-    done.push( deadEndTarget.process())
-
     return Promise.all( done )
 }
 
-function createAuxIndex() {
+function openMetadata( dbName ) {
+    return Promise.resolve()
+    .then( () => sqlite.open( dbName ))
+    .then( db => {
+        indexerDb = db
+        return indexerDb.exec(`
+            PRAGMA synchronous = OFF;
+            PRAGMA journal_mode = WAL;
+            DROP INDEX IF EXISTS articleUrlKey ;
+            DROP INDEX IF EXISTS urlSortedArticleId ;
+            DROP INDEX IF EXISTS articleTitleKey ;
+
+            DROP TABLE IF EXISTS urlSorted ;
+            DROP TABLE IF EXISTS dirEntries ;
+            DROP TABLE IF EXISTS clusters ;
+
+            CREATE TABLE dirEntries (
+                id INTEGER PRIMARY KEY,
+                offset INTEGER
+                );
+            CREATE TABLE clusters (
+                id INTEGER PRIMARY KEY,
+                offset INTEGER
+                );
+            `
+            )
+        }
+    )
+}
+
+function newMetadata() {
     var dbName = ''
     if ( argv.verbose ) {
         var parsed = osPath.parse( outPath )
@@ -908,104 +1094,79 @@ function createAuxIndex() {
     .catch( () => null )
     .then( () => sqlite.open( dbName ))
     .then( db => {
-        zIndex = db
-        return zIndex.exec(
-                'PRAGMA synchronous = OFF;' +
-                'PRAGMA journal_mode = OFF;' +
-                //~ 'PRAGMA journal_mode = WAL;' +
-                'CREATE TABLE articles (' +
-                    'articleId INTEGER PRIMARY KEY,' +
-                    //~ 'ordinal INTEGER,' +
-                    //~ 'dirEntry INTEGER,' +
-                    'nsUrl TEXT,' +
-                    'nsTitle TEXT' +
-                    ');' +
-                'CREATE TABLE redirects (' +
-                    'articleId INTEGER PRIMARY KEY,' +
-                    'redirect TEXT ' +
-                    ');' +
-                'CREATE TABLE dirEntries (' +
-                    'articleId INTEGER PRIMARY KEY,' +
-                    'offset INTEGER' +
-                    ');' +
-                'CREATE TABLE clusters (' +
-                    'ordinal INTEGER PRIMARY KEY,' +
-                    'offset INTEGER ' +
-                    ');'
+        indexerDb = db
+        return indexerDb.exec(
+            'PRAGMA synchronous = OFF;' +
+            'PRAGMA journal_mode = OFF;' +
+            //~ 'PRAGMA journal_mode = WAL;' +
+            'CREATE TABLE articles (' + [
+                    'id INTEGER PRIMARY KEY',
+                    'mimeId INTEGER',
+                    'revision INTEGER',
+                    'mwId INTEGER',
+                    'urlKey TEXT',
+                    'titleKey TEXT',
+                ].join(',') +
+                ');' +
+            'CREATE TABLE redirects (' +
+                'id INTEGER PRIMARY KEY,' +
+                'targetKey TEXT, ' +
+                'fragment TEXT ' +
+                ');' +
+            'CREATE TABLE dirEntries (' +
+                'id INTEGER PRIMARY KEY,' +
+                'offset INTEGER' +
+                ');' +
+            'CREATE TABLE clusters (' +
+                'id INTEGER PRIMARY KEY,' +
+                'offset INTEGER ' +
+                ');'
             )
         }
     )
 }
 
 function sortArticles () {
-    return zIndex.exec(`
-        CREATE INDEX articleNsUrl ON articles (nsUrl);
+    return indexerDb.exec(`
+        CREATE INDEX articleUrlKey ON articles (urlKey);
 
         CREATE TABLE urlSorted AS
             SELECT
-                articleId,
-                nsUrl
+                id,
+                urlKey
             FROM articles
-            ORDER BY nsUrl;
+            ORDER BY urlKey;
 
-        CREATE INDEX urlSortedArticleId ON urlSorted (articleId);
+        CREATE INDEX urlSortedArticleId ON urlSorted (id);
 
-        CREATE INDEX articleNsTitle ON articles (nsTitle);
+        CREATE INDEX articleTitleKey ON articles (titleKey);
         `
     )
 }
 
 function loadRedirects () {
     var redirectsFile
-    if ( zimFormated )
-        redirectsFile = zimFormated.redirects
+    if ( preProcessed )
+        redirectsFile = osPath.join( srcPath, 'redirects.csv' )
     else if ( argv.redirects )
         redirectsFile = expandHomeDir( argv.redirects )
     else
         return Promise.resolve()
 
+    const getRow = cvsReader( redirectsFile, {
+        columns:[ 'nameSpace', 'path', 'title', 'to' ],
+        delimiter: '\t',
+        relax_column_count: true
+    })
+
     return Promise.coroutine( function* () {
-        var inp = fs.createReadStream( redirectsFile )
-        var finished = false
-
-        var parser = csvParse(
-            {
-                delimiter: '\t',
-                columns:[ 'ns', 'path', 'title', 'target', 'targetFragment' ]
-            }
-        )
-        parser.on( 'error', function ( err ) {
-            console.error( 'loadRedirects ' + err.message )
-            throw err
-        })
-        parser.on( 'end', function () {
-            log( 'loadRedirects end' )
-            finished = true
-            parser.emit( 'readable' )
-        })
-
-        log( 'loadRedirects start' )
-        inp.pipe( parser )
-
-        function getRow () {
-            return new Promise( resolve => {
-                var row = parser.read()
-                if ( row || finished ) {
-                    resolve( row )
-                } else {
-                    parser.once( 'readable', () => resolve( getRow()))
-                }
-            })
-        }
-
         while ( true ) {
             const row = yield getRow()
             log( 'loadRedirects', row )
             if ( row ) {
-                yield new Redirect( row.path, row.ns, row.title, row.target )
+                yield new Redirect( row )
                 .process()
-            }
-            if ( finished ) {
+            } else {
                 return
             }
         }
@@ -1015,52 +1176,53 @@ function loadRedirects () {
 
 function resolveRedirects () {
     return Promise.coroutine( function* () {
-        var stmt = yield zIndex.prepare( `
+        var stmt = yield indexerDb.prepare( `
             SELECT
-                src.articleId AS articleId,
-                src.nsUrl AS nsUrl,
-                src.nsTitle AS nsTitle,
-                redirect,
-                targetUrl,
-                targetIdx
+                src.id AS id,
+                src.urlKey AS urlKey,
+                src.titleKey AS titleKey,
+                src.revision AS revision,
+                targetKey,
+                targetRow,
+                targetId
             FROM (
                 SELECT
                     *,
-                    u.rowid - 1 AS  targetIdx
+                    urlSorted.rowid AS targetRow
                 FROM (
                     SELECT
-                        redirects.articleId,
-                        redirect,
-                        d.nsUrl AS targetUrl,
-                        COALESCE ( d.articleId, (
-                            SELECT articleId FROM articles WHERE nsUrl = "${deadEndTarget.nsUrl()}")
-                        ) AS targetId
-                        -- d.articleId AS targetId
+                        redirects.id AS id,
+                        redirects.targetKey AS targetKey,
+                        dst.id AS targetId
                     FROM redirects
-                    LEFT OUTER JOIN articles AS d
-                    ON redirect = targetUrl
-                ) AS r
-                LEFT OUTER JOIN urlSorted AS u
-                ON r.targetId = u.articleId
-            ) AS dst
+                    LEFT OUTER JOIN articles AS dst
+                    ON redirects.targetKey = dst.urlKey
+                ) AS fromTo
+                LEFT OUTER JOIN urlSorted
+                ON fromTo.targetId = urlSorted.id
+            ) AS dstResolved
             JOIN articles AS src
-            USING (articleId)
-            -- WHERE targetIdx IS NULL
+            USING (id)
+            WHERE targetId IS NOT NULL
             ;`)
         while ( true ) {
             const row = yield stmt.get()
             if ( ! row ) {
-                return
+                break
             }
-            var nameSpace = row.nsUrl[ 0 ]
-            var url = row.nsUrl.substr( 1 )
-            var title = ( row.nsTitle == row.nsUrl ) ? '' : row.nsTitle.substr( 1 )
-            if ( url == 'mainpage' )
-                mainPage.target = row.targetIdx
+            var nameSpace = row.urlKey[ 0 ]
+            var path = row.urlKey.substr( 1 )
+            var title = ( row.titleKey == row.urlKey ) ? '' : row.titleKey.substr( 1 )
+            var target = row.targetRow - 1
+            if ( path == 'mainpage' ) {
+                mainPage.target = target
+                continue
+            }
 
-            yield new ResolvedRedirect ( row.articleId, nameSpace, url, title, row.targetIdx )
-                .process()
+            yield new ResolvedRedirect ( row.id, nameSpace, path, title, target, row.revision )
+            .process()
         }
+        yield stmt.finalize()
     }) ()
 }
 
@@ -1071,7 +1233,7 @@ function saveIndex ( query, byteLength, rowField, count, logInfo ) {
     return Promise.coroutine( function* () {
         var startOffset
         var i = 0
-        var stmt = yield zIndex.prepare( query )
+        var stmt = yield indexerDb.prepare( query )
         while ( true ) {
             const row = yield stmt.get()
             if ( ! row )
@@ -1085,6 +1247,8 @@ function saveIndex ( query, byteLength, rowField, count, logInfo ) {
             if ( ! startOffset )
                 startOffset = offset
         }
+        yield stmt.finalize()
+
         log( logInfo, 'done', i, count, startOffset )
         return Promise.resolve( startOffset )
     }) ()
@@ -1107,12 +1271,12 @@ function storeUrlIndex () {
     return saveIndex (`
         SELECT
             urlSorted.rowid,
-            articleId,
-            nsUrl,
+            id,
+            urlKey,
             offset
         FROM urlSorted
         LEFT OUTER JOIN dirEntries
-        USING (articleId)
+        USING (id)
         ORDER BY urlSorted.rowid
         ;`,
         8, 'offset', articleCount, 'storeUrlIndex'
@@ -1132,55 +1296,16 @@ function storeUrlIndex () {
 function storeTitleIndex () {
     return saveIndex (
         'SELECT ' +
-            'nsTitle, ' +
+            'titleKey, ' +
             'urlSorted.rowid - 1 AS articleNumber ' +
         'FROM urlSorted ' +
         'JOIN articles ' +
-        'USING (articleId) ' +
-        'ORDER BY nsTitle ' +
+        'USING (id) ' +
+        'ORDER BY titleKey ' +
         ';',
         4, 'articleNumber', articleCount, 'storeTitleIndex'
     )
     .then( offset => header.titlePtrPos = offset )
-}
-
-const fileLoader = {
-    dirs: [''],
-    start: function () {
-        log( 'fileLoader start' )
-        return fileLoader.scanDirectories()
-        .then( () => log( 'fileLoader finished !!!!!!!!!' ))
-    },
-    scanDirectories: function ( path ) {
-        return Promise.coroutine( function* () {
-            for ( let path; ( path = fileLoader.dirs.shift()) != null; ) {
-                log( 'scanDirectory', path )
-
-                yield Promise.map(
-                    fs.readdir( fullPath( path )),
-                    fname => fileLoader.parseDirEntry( osPath.join( path, fname ), null ),
-                    { concurrency: 4 }
-                )
-            }
-        }) ()
-    },
-    parseDirEntry: function ( path, realPath ) {
-        if ( path == 'metadata.csv' || path == 'redirects.csv' )
-            return Promise.resolve()
-
-        return fs.lstat( realPath || fullPath( path ) )
-        .then( stats => {
-            if ( stats.isDirectory())
-                return fileLoader.dirs.push( path )
-            if ( stats.isSymbolicLink())
-                return fs.realpath( fullPath( path ))
-                .then( realPath => fileLoader.parseDirEntry( path, realPath ))
-            if ( stats.isFile()) {
-                return new File( path, realPath ).process()
-            }
-            return Promise.reject( new Error( 'Invalid dir entry ' + absPath ))
-        })
-    },
 }
 
 // MIME Type List (mimeListPos)
@@ -1260,44 +1385,123 @@ function calculateFileHash () {
     return new Promise( r => resolve = r )
 }
 
-
 function initialise () {
     var stat = fs.statSync( srcPath ) // check source
     if ( ! stat.isDirectory() ) {
         return Promise.reject( new Error( srcPath + ' is not a directory' ))
-    }
-    var mtdPath = osPath.join( srcPath, 'metadata.csv' )
-    var mtdTxt = null
-    try {
-        mtdTxt = fs.readFileSync( mtdPath, 'utf8' )
-    } catch ( err ) {
-    }
-    if ( mtdTxt ) {
-        var mtdArr = csvParseSync( mtdTxt, { delimiter: '\t' })
-        zimFormated = {
-            metadata: mtdArr,
-            redirects: osPath.join( srcPath, 'redirects.csv' )
-        }
     }
 
     out = new Writer( outPath ); // create output file
     log( 'reserving space for header and mime type list' )
     out.write( Buffer.alloc( headerLength + maxMimeLength ))
 
-    return createAuxIndex()
+    var metadata = osPath.join( srcPath, 'metadata.db' )
+    if ( fs.existsSync( metadata )) {
+        preProcessed = true
+        return openMetadata( metadata )
+        .then( () => loadMimeTypes())
+    }
+    return newMetadata()
+    .then( () => loadMetadata())
 }
 
-//~ function loadArticles () {
-    //~ return loadMetadata()
-    //~ .then( () => Promise.all( fileLoader.start(), loadRedirects() ))
-//~ }
-function loadArticles () {
+function rawLoader () {
+    const dirs = [ '' ]
+
+    function scanDirectories ( path ) {
+        return Promise.coroutine( function* () {
+            for ( let path; ( path = dirs.shift()) != null; ) {
+                log( 'scanDirectory', path )
+
+                yield Promise.map(
+                    fs.readdir( fullPath( path )),
+                    fname => parseDirEntry( osPath.join( path, fname )),
+                    { concurrency: 8 }
+                )
+            }
+        }) ()
+    }
+
+    function parseDirEntry ( path ) {
+        if ( path == 'metadata.csv' || path == 'redirects.csv' )
+            return Promise.resolve()
+
+        return fs.lstat( fullPath( path ))
+        .then( stats => {
+            if ( stats.isDirectory())
+                return dirs.push( path )
+            if ( stats.isFile() || stats.isSymbolicLink()) {
+                return new RawFile( path ).process()
+            }
+            return Promise.reject( new Error( 'Invalid dir entry ' + absPath ))
+        })
+    }
+
+    log( 'rawLoader start' )
+    return scanDirectories()
+    .then( () => log( 'rawLoader finished !!!!!!!!!' ))
+}
+
+function loadPreProcessedArticles () {
     return Promise.coroutine( function* () {
-        yield loadMetadata()
-        yield fileLoader.start()
-        yield loadRedirects()
+        var stmt = yield indexerDb.prepare( `
+            SELECT
+                id ,
+                mimeId ,
+                revision ,
+                urlKey ,
+                titleKey
+            FROM articles
+            WHERE mimeId IS NOT 0xffff
+            ;`)
+        while ( true ) {
+            const row = yield stmt.get()
+            if ( ! row ) {
+                break
+            }
+            var nameSpace = row.urlKey[ 0 ]
+            var path = row.urlKey.substr( 1 )
+            var title = ( row.titleKey == row.urlKey ) ? '' : row.titleKey.substr( 1 )
+            yield new File( {
+                nameSpace,
+                path,
+                title,
+                mimeType: mimeFromIndex( row.mimeId ),
+                id: row.id,
+                revision: row.revision,
+            } )
+            .process()
+        }
+        yield stmt.finalize()
     }) ()
 }
+
+function loadMimeTypes () {
+    return Promise.coroutine( function * () {
+        var stmt = yield indexerDb.prepare( `
+            SELECT
+                id ,
+                value
+            FROM mimeTypes
+            ORDER BY id
+            ;`)
+        while ( true ) {
+            const row = yield stmt.get()
+            if ( ! row ) {
+                break
+            }
+            mimeTypeList.push( row.value )
+        }
+        yield stmt.finalize()
+    }) ()
+}
+
+function loadRawArticles () {
+    return Promise.resolve()
+    .then( () => rawLoader())
+    .then( () => loadRedirects())
+}
+
 function postProcess () {
     return Promise.coroutine( function* () {
         yield ClusterWriter.finish()
@@ -1311,6 +1515,7 @@ function postProcess () {
 function finalise () {
     return Promise.coroutine( function* () {
         header.checksumPos = yield out.close() // close the output stream
+        yield indexerDb.close()
         yield stroreHeader()
         yield calculateFileHash()
     }) ()
@@ -1319,7 +1524,7 @@ function finalise () {
 function core () {
     return Promise.coroutine( function* () {
         yield initialise()
-        yield loadArticles()
+        yield preProcessed ? loadPreProcessedArticles() : loadRawArticles()
         yield postProcess()
         yield finalise()
     }) ()
