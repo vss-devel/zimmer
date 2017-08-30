@@ -1554,8 +1554,12 @@ function main () {
 
     argv
     .version( packageInfo.version )
-    .description( 'Pack a directory into a zim file' )
-    .arguments( '<source-directory> [output...]' )
+    .description( `Pack a directory into a zim file
+
+  Where:
+    source-directory \t path to the directory with HTML pages to pack into a ZIM file
+    zim-file \t\t optional path for the output` )
+    .arguments( '<source-directory> [zim-file...]' )
     // Mandatory arguments:
     .option( '-w, --welcome <page>', 'path of default/main HTML page. The path must be relative to HTML_DIRECTORY', 'index.htm' )
     .option( '-f, --favicon <file>', 'path of ZIM file favicon. The path must be relative to HTML_DIRECTORY and the image a 48x48 PNG', 'favicon.png' )
@@ -1570,9 +1574,14 @@ function main () {
     .option( '-x, --inflateHtml', 'try to inflate HTML files before packing (*.html, *.htm, ...)' )
     .option( '-u, --uniqueNamespace', 'put everything in the same namespace "A". Might be necessary to avoid problems with dynamic/javascript data loading' )
     .option( '-r, --redirects <path>', 'path to the CSV file with the list of redirects (url, title, target_url tab separated)', '' )
+    // Not implemented
     //~ .option( '-i, --withFullTextIndex', 'index the content and add it to the ZIM' )
+    // Extra arguments:
     .option( '--optimg', 'optimise images' )
     .option( '--jpegquality <factor>', 'JPEG quality', parseInt, 60 )
+    .on( '--help', () => {
+        console.log( '' )
+    })
     .parse( process.argv )
 
     log( argv )
