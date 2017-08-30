@@ -29,20 +29,21 @@ SOFTWARE.
 
 */
 
+const packageInfo = require('./package.json');
 const Promise = require( 'bluebird' )
 const os = require( 'os' )
-const process = require( 'process' )
-const yargs = require( 'yargs' )
-const util = require( 'util' )
-const fs = require( 'fs-extra' )
 const osPath = require( 'path' )
+const process = require( 'process' )
+const url = require( 'url' )
+const crypto = require( "crypto" )
+
+const argv = require('commander')
+const fs = require( 'fs-extra' )
 const expandHomeDir = require( 'expand-home-dir' )
 const lzma = require( 'lzma-native' )
 const cheerio = require('cheerio')
 
-const url = require( 'url' )
 const uuid = require( "uuid" )
-const crypto = require( "crypto" )
 const csvParse = require( 'csv-parse' )
 const csvParseSync = require( 'csv-parse/lib/sync' )
 const zlib = require( 'mz/zlib' )
@@ -60,8 +61,6 @@ const mmmagic = require( 'mmmagic' )
 const mimeMagic = new mmmagic.Magic( mmmagic.MAGIC_MIME_TYPE )
 
 const cpuCount = os.cpus().length
-
-var argv
 
 var srcPath
 var outPath
@@ -1552,42 +1551,40 @@ function core () {
 // -i, --withFullTextIndex index the content and add it to the ZIM.
 
 function main () {
-    argv = yargs.usage( 'Pack a directory into a zim file\nUsage: $0'
-               + '\nExample: $0 ' )
-        //~ .boolean( 'optimg' )
-        .options({
-            'w': {alias: 'welcome', default: 'index.htm'},
-            'f': {alias: 'favicon', default: 'favicon.png'},
-            'l': {alias: 'language', default: 'eng'},
-            't': {alias: 'title', default: ''},
-            'd': {alias: 'description', default: ''},
-            'c': {alias: 'creator', default: ''},
-            'p': {alias: 'publisher', default: ''},
-            'v': {alias: 'verbose', type: 'boolean', default: false},
-            'm': {alias: 'minChunkSize', type: 'number', default: ClusterSizeThreshold / 1024},
-            'x': {alias: 'inflateHtml', type: 'boolean', default: false},
-            'u': {alias: 'uniqueNamespace', type: 'boolean', default: false},
-            //~ 'r': {alias: 'redirects', default: 'redirects.csv'},
-            'r': {alias: 'redirects', default: ''},
-            //~ 'i': {alias: 'withFullTextIndex', type:'boolean', default: false},
-            'h': {alias: 'help'},
-            'optimg': {type: 'boolean', default: false},
-            'jpegquality': {type: 'number', default: 60},
-        })
-        .help( 'help' )
-        //~ .strict()
-        .argv
+
+    argv
+    .version( packageInfo.version )
+    .description( 'Pack a directory into a zim file' )
+    .arguments( '<source-directory> [output...]' )
+    // Mandatory arguments:
+    .option( '-w, --welcome <page>', 'path of default/main HTML page. The path must be relative to HTML_DIRECTORY', 'index.htm' )
+    .option( '-f, --favicon <file>', 'path of ZIM file favicon. The path must be relative to HTML_DIRECTORY and the image a 48x48 PNG', 'favicon.png' )
+    .option( '-l, --language <id>', 'language code of the content in ISO639-3', 'eng' )
+    .option( '-t, --title <title>', 'title of the ZIM file', '' )
+    .option( '-d, --description <text>', 'short description of the content', '' )
+    .option( '-c, --creator  <text>', 'creator(s) of the content', '' )
+    .option( '-p, --publisher  <text>', 'creator of the ZIM file itself', '' )
+    // Optional arguments:
+    .option( '-v, --verbose', 'print processing details on STDOUT' )
+    .option( '-m, --minChunkSize <size>', 'number of bytes per ZIM cluster (default: 2048)', parseInt, 2048 )
+    .option( '-x, --inflateHtml', 'try to inflate HTML files before packing (*.html, *.htm, ...)' )
+    .option( '-u, --uniqueNamespace', 'put everything in the same namespace "A". Might be necessary to avoid problems with dynamic/javascript data loading' )
+    .option( '-r, --redirects <path>', 'path to the CSV file with the list of redirects (url, title, target_url tab separated)', '' )
+    //~ .option( '-i, --withFullTextIndex', 'index the content and add it to the ZIM' )
+    .option( '--optimg', 'optimise images' )
+    .option( '--jpegquality <factor>', 'JPEG quality', parseInt, 60 )
+    .parse( process.argv )
 
     log( argv )
 
-    var pargs = argv._
+    var args = argv.args
 
-    while ( pargs[ 0 ] == '' ) // if mwoffliner prepends with empty extra parameter(s)
-        pargs.shift()
+    while ( args[ 0 ] == '' ) // if mwoffliner prepends with empty extra parameter(s)
+        args.shift()
 
-    srcPath = expandHomeDir( pargs[ 0 ])
-    if ( argv._[ 1 ])
-        outPath = expandHomeDir( pargs[ 1 ])
+    srcPath = expandHomeDir( args[ 0 ])
+    if ( args[ 1 ])
+        outPath = expandHomeDir( args[ 1 ])
     else {
         var parsed = osPath.parse( srcPath )
         outPath = parsed.base + '.zim'

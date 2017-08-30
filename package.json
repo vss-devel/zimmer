@@ -1,6 +1,6 @@
 {
   "name": "zimmer",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Zim file packer",
   "main": "zimmer.js",
   "scripts": {
@@ -8,28 +8,36 @@
   },
   "private": true,
   "keywords": [
+    "mediawiki",
     "zim",
     "pack"
   ],
   "dependencies": {
     "bluebird": "*",
     "cheerio": "*",
-    "child-process": "^1.0.2",
+    "child-process": "*",
     "csv-parse": "*",
-    "csv-stringify": "*",
+    "encodeurl": "^1.0.1",
     "expand-home-dir": "*",
     "fs-extra": "^3.0.1",
     "generic-pool": "^3.1.7",
+    "iconv-lite": "^0.4.17",
+    "langs": "^2.0.0",
     "lzma-native": "*",
     "mime-db": "*",
     "mime-types": "*",
     "mmmagic": "*",
     "mozjpeg": "*",
     "mz": "^2.6.0",
+    "quick-lru": "^1.0.0",
+    "request": "^2.81.0",
+    "request-promise": "^4.2.1",
+    "sanitize-filename": "^1.6.1",
     "sharp": "^0.17.3",
     "sqlite": "^2.8.0",
+    "sqlite3": "*",
     "uuid": "*",
-    "yargs": "*"
+    "commander": "^2.11.0"
   },
   "author": "Vadim Shlykahov",
   "license": "ISC"
