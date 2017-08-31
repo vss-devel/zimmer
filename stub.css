@@ -1,0 +1,44 @@
+/*
+ *
+ * stub.css
+ *
+ */
+#zim body {
+    font-size: 100%;
+    background-image: none;
+}
+#zim #content {
+    margin: auto;
+}
+#zim .mw-body-content {
+    line-height: 1.6;
+    font-size: 0.875em;
+}
+#zim .mw-body-content p {
+    line-height: inherit;
+    margin: 0.5em 0;
+}
+#zim #toc {
+    display: none;
+}
+#zim .article-status {
+    display: none;
+}
+#zim .thumbcaption .magnify {
+    display: none;
+}
+
+/* supress Kartographer chartlet */
+.thumbinner a[data-lon] {
+    display: none;
+}
+
+#zim #geoCoord {
+    top: -20px;
+}
+#geoCoord img {
+    display: none;
+}
+#zim #mw-customtoggle-mapToggle {
+    display: none;
+}
