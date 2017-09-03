@@ -13,9 +13,11 @@
     "pack"
   ],
   "dependencies": {
+    "animated-gif-detector": "^1.2.0",
     "bluebird": "*",
     "cheerio": "*",
     "child-process": "*",
+    "commander": "^2.11.0",
     "csv-parse": "*",
     "encodeurl": "^1.0.1",
     "expand-home-dir": "*",
@@ -36,8 +38,11 @@
     "sharp": "^0.17.3",
     "sqlite": "^2.8.0",
     "sqlite3": "*",
-    "uuid": "*",
-    "commander": "^2.11.0"
+    "uuid": "*"
+  },
+  "bin": {
+    "zimmer": "./zimmer.js",
+    "wikizimmer": "./wikizimmer.js"
   },
   "author": "Vadim Shlykahov",
   "license": "ISC"
