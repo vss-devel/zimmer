@@ -714,7 +714,7 @@ const cssDependencies = new Set()
 
 class GlobalCss extends StyleItem {
     constructor ( sourceDOM ) {
-        super( 'layout.css' )
+        super( 'zim.css' )
         this.sourceDOM = sourceDOM
         this.mimeType = 'text/css'
     }

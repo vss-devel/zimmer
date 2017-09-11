@@ -3,12 +3,13 @@
  * stub.css
  *
  */
-#zim body {
+body#zim {
     font-size: 100%;
     background-image: none;
 }
 #zim #content {
-    margin: auto;
+    margin: 0px;
+    padding: 2px;
 }
 #zim .mw-body-content {
     line-height: 1.6;
@@ -27,12 +28,15 @@
 #zim .thumbcaption .magnify {
     display: none;
 }
-
-/* supress Kartographer chartlet */
-.thumbinner a[data-lon] {
-    display: none;
+#zim table.wikitable, table.nicetable {
+    margin-right: 0;
+    margin-left: 0;
 }
 
+/* for en.wikivoyage.org */
+.thumbinner a[data-lon] { /* supress Kartographer chartlet */
+    display: none;
+}
 #zim #geoCoord {
     top: -20px;
 }
