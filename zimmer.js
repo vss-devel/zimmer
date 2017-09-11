@@ -1554,12 +1554,12 @@ function main () {
 
     argv
     .version( packageInfo.version )
+    .arguments( '<source-directory> [zim-file...]' )
     .description( `Pack a directory into a zim file
 
   Where:
     source-directory \t path to the directory with HTML pages to pack into a ZIM file
     zim-file \t\t optional path for the output` )
-    .arguments( '<source-directory> [zim-file...]' )
     // Mandatory arguments:
     .option( '-w, --welcome <page>', 'path of default/main HTML page. The path must be relative to HTML_DIRECTORY', 'index.htm' )
     .option( '-f, --favicon <file>', 'path of ZIM file favicon. The path must be relative to HTML_DIRECTORY and the image a 48x48 PNG', 'favicon.png' )
@@ -1579,14 +1579,11 @@ function main () {
     // Extra arguments:
     .option( '--optimg', 'optimise images' )
     .option( '--jpegquality <factor>', 'JPEG quality', parseInt, 60 )
-    .on( '--help', () => {
-        console.log( '' )
-    })
     .parse( process.argv )
 
     log( argv )
 
-    var args = argv.args
+    const args = argv.args
 
     while ( args[ 0 ] == '' ) // if mwoffliner prepends with empty extra parameter(s)
         args.shift()
