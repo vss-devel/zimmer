@@ -55,6 +55,11 @@ const mimeTypes = require( 'mime-types' )
 const mmmagic = require( 'mmmagic' )
 const mimeMagic = new mmmagic.Magic( mmmagic.MAGIC_MIME_TYPE )
 
+const moment = require("moment")
+require("moment-duration-format")
+
+const startTime = Date.now()
+
 const cpuCount = os.cpus().length
 
 var articleCount = 0
@@ -78,14 +83,16 @@ function sanitizeFN ( name ) { // after https://github.com/pillarjs/encodeurl
     //~ return sanitizeFilename( name, { replacement: '.' })
 }
 
-function log ( arg ) {
-    console.log.apply( this, arguments )
-    //~argv && argv.verbose && console.log.apply(this, arguments)
+function elapsedStr( from , to = Date.now()) {
+    return moment.duration( to - from ).format('d[d]hh:mm:ss.SSS',{ stopTrim: "h" })
 }
 
-function fatal (arg) {
-    console.error.apply( this, arguments )
-    //~argv && argv.verbose && console.log.apply(this, arguments)
+function log ( ...args ) {
+    console.log( elapsedStr( startTime ), ... args )
+}
+
+function fatal ( ...args ) {
+    log( ...args )
     osProcess.exit( 1 )
 }
 
