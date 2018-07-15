@@ -103,17 +103,16 @@ function mimeFromData ( data ) {
 let UserAgent = `wikizimmer/${packageInfo.version} (https://github.com/vadp/zimmer email:vadp.devl@gmail.com)`
 const UserAgentFirefox = 'Mozilla/5.0 (X11; Linux x86_64; rv:12.0) Gecko/20100101 Firefox/12.0'
 
-function pooledRequest( request, referenceUri, maxTokens, initialInterval ) {
+function pooledRequest( request, referenceUri, maxTokens = 1, interval = 10 ) {
     const retryErrorCodes = [ 'EPROTO', 'ECONNRESET', 'ESOCKETTIMEDOUT' ]
-    const retryStatusCodes = [ 503 ]
+    const retryStatusCodes = [ 408, 420, 423, 429, 500, 503, 504, 509, 524 ]
     const retryLimit = 10
     const requestTimeout = 5 * 60 * 1000
     const queue = []
     let timer = null
-    let supressTimer = false
-    let supressTimeout = 60000
+    let supressTimer = null
+    let supressTimeout = 60 * 1000
     let tokenCounter = 0
-    let interval = initialInterval
 
     function setTimer () {
         if ( supressTimer )
@@ -124,16 +123,19 @@ function pooledRequest( request, referenceUri, maxTokens, initialInterval ) {
         )
     }
 
-    function pause () {
-        if ( timer )
+    function pause ( query ) {
+        if ( timer ) {
             clearTimeout( timer )
-        if ( ! supressTimer ) {
-            supressTimer = setTimeout(
-                () => ( supressTimer = false, setTimer()),
-                supressTimeout
-            )
-            interval = interval * 2
-            supressTimeout = supressTimeout * 4
+        }
+        if ( supressTimer ) {
+            clearTimeout( supressTimer )
+        }
+        supressTimer = setTimeout(
+            () => ( supressTimer = false, setTimer()),
+            query.retries * supressTimeout
+        )
+        if ( ! query.external ) {
+            interval = interval * 4
         }
     }
 
@@ -143,7 +145,7 @@ function pooledRequest( request, referenceUri, maxTokens, initialInterval ) {
     }
 
     function retry ( query, error ) {
-        pause ()
+        pause( query )
         if ( ++ query.retries <= retryLimit ) {
             queue.push( query )
             return
@@ -154,7 +156,7 @@ function pooledRequest( request, referenceUri, maxTokens, initialInterval ) {
 
     function acquire () {
         let query
-        if ( timer || tokenCounter >= maxTokens || ! ( query = queue.shift()))
+        if ( timer || supressTimer || tokenCounter >= maxTokens || ! ( query = queue.shift()))
             return false
         tokenCounter ++
         return {
@@ -176,21 +178,14 @@ function pooledRequest( request, referenceUri, maxTokens, initialInterval ) {
         let query = token.query
         return request( query )
         .catch( error => {
-            if ( error.statusCode == 404 ) {
-                query.reject( error )
-                return
-            }
-            if ( retryStatusCodes.includes( error.statusCode )) {
-                console.error( 'request', error.name, error.statusCode, query )
+            const retryCause = retryStatusCodes.includes( error.statusCode ) ? error.statusCode :
+                error.cause && retryErrorCodes.includes( error.cause.code ) ? error.cause.code : false
+            if ( retryCause ) {
+                log( 'retry request', interval, error.name, retryCause, query )
                 token.retry( query, error )
                 return
             }
-            if ( error.cause && retryErrorCodes.includes( error.cause.code )) { // https error?
-                console.error( 'request', error.name, error.cause.code, query )
-                token.retry( query, error )
-                return
-            }
-            fatal( 'request fatal error', error, query )
+            query.reject( error )
             return
         })
         .then( reply => {
@@ -238,7 +233,7 @@ function pooledRequest( request, referenceUri, maxTokens, initialInterval ) {
         return query
     }
 
-    return function ( query, priority ) {
+    return function ( query, priority = false ) {
         return append( processOptions( query ), priority )
     }
 }
@@ -789,7 +784,7 @@ function processSamplePage ( samplePageUrl,  rmdir) {
 
         // set base for further http requests
         const realUrl = resp.request.href
-        http = pooledRequest( requestPromise, realUrl, 1, 1 )
+        http = pooledRequest( requestPromise, realUrl )
 
         // create download directory
         const urlp = urlconv.parse( realUrl )
