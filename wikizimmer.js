@@ -985,13 +985,16 @@ function batchPages () {
             let pages = {}
             try {
                 pages = resp.query.pages
-                //~log( pages )
+                //~ log( '*pages', pages )
             }
             catch (e) {
                 log( 'getPages', 'NO PAGES' )
             }
             let redirects = []
             const done = Object.keys( pages ).map( key => {
+                if ( parseInt( key ) < 0 ) {
+                    return null
+                }
                 const pageInfo = pages[ key ]
                 if ( pageInfo.redirect != null ) {
                     log( '>>>' , pageInfo.title )
