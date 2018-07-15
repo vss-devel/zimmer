@@ -29,6 +29,8 @@
     "mime-db": "*",
     "mime-types": "*",
     "mmmagic": "*",
+    "moment": "^2.22.2",
+    "moment-duration-format": "^2.2.2",
     "mozjpeg": "*",
     "mz": "^2.6.0",
     "quick-lru": "^1.0.0",
