@@ -61,17 +61,12 @@ const startTime = Date.now()
 
 const cpuCount = os.cpus().length
 
-var articleCount = 0
-var redirectCount = 0
 const mimeIds = []
 
-var saveCss = true
-var saveImages = true
-var savePages = true
-
-var http
-
-var indexerDb
+let articleCount = 0
+let redirectCount = 0
+let http // http request
+let indexerDb
 
 // https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247
 // just in case https://www.mediawiki.org/wiki/Manual:Page_title
@@ -105,7 +100,8 @@ function mimeFromData ( data ) {
     )
 }
 
-const UserAgent = `wikizimmer/${packageInfo.version} (https://github.com/vadp/zimmer email:vadp.devl@gmail.com)`
+let UserAgent = `wikizimmer/${packageInfo.version} (https://github.com/vadp/zimmer email:vadp.devl@gmail.com)`
+const UserAgentFirefox = 'Mozilla/5.0 (X11; Linux x86_64; rv:12.0) Gecko/20100101 Firefox/12.0'
 
 function pooledRequest( request, referenceUri, maxTokens, initialInterval ) {
     const retryErrorCodes = [ 'EPROTO', 'ECONNRESET', 'ESOCKETTIMEDOUT' ]
@@ -229,9 +225,10 @@ function pooledRequest( request, referenceUri, maxTokens, initialInterval ) {
             query.uri = null
         }
         query.url = urlconv.resolve( referenceUri, url )
-        if (! query.headers)
+        if ( ! query.headers )
             query.headers = {}
         query.headers[ 'User-Agent' ] = UserAgent
+        query.headers[ 'Referer' ] = referenceUri
         query.resolveWithFullResponse = true
         query.timeout = requestTimeout
         query.forever = true
@@ -1080,6 +1077,10 @@ function closeMetadataStorage () {
 }
 
 function core ( samplePage ) {
+    if ( command.userAgent ) {
+        UserAgent = command.userAgent == 'firefox' ? UserAgentFirefox : command.userAgent
+    }
+    log( 'UserAgent', UserAgent )
 
     processSamplePage( samplePage, command.rmdir )
     .then( initMetadataStorage )
@@ -1108,6 +1109,8 @@ function main () {
     .option( '--no-images', "don't download images" )
     .option( '--no-css', "don't page styling" )
     .option( '--no-pages', "don't save downloaded pages" )
+    .option( '--user-agent [firefox or string]', "set user agent" )
+
     .parse( process.argv )
 
     log( command.opts() )
