@@ -107,8 +107,10 @@ function pooledRequest( request, referenceUri, maxTokens = 1, interval = 10 ) {
     const retryErrorCodes = [ 'EPROTO', 'ECONNRESET', 'ESOCKETTIMEDOUT' ]
     const retryStatusCodes = [ 408, 420, 423, 429, 500, 503, 504, 509, 524 ]
     const retryLimit = 10
+    const retryExternal = command.retryExternal == null ? retryLimit : command.retryExternal
     const requestTimeout = 5 * 60 * 1000
     const queue = []
+    const refHost = urlconv.parse( referenceUri ).host
     let timer = null
     let supressTimer = null
     let supressTimeout = 60 * 1000
@@ -146,7 +148,7 @@ function pooledRequest( request, referenceUri, maxTokens = 1, interval = 10 ) {
 
     function retry ( query, error ) {
         pause( query )
-        if ( ++ query.retries <= retryLimit ) {
+        if ( ++ query.retries <= ( query.external ? retryExternal : retryLimit )) {
             queue.push( query )
             return
         }
@@ -217,9 +219,12 @@ function pooledRequest( request, referenceUri, maxTokens = 1, interval = 10 ) {
             query = {}
         } else {
             url = query.uri || query.url
-            query.uri = null
+            delete query.uri
         }
         query.url = urlconv.resolve( referenceUri, url )
+        const queryHost = urlconv.parse( query.url ).host
+        query.external = queryHost != refHost
+
         if ( ! query.headers )
             query.headers = {}
         query.headers[ 'User-Agent' ] = UserAgent
@@ -304,10 +309,10 @@ class WikiItem {
             this.loadPriority
         )
         .catch( err => {
-            if ( err.statusCode == 404 ) {
+            if ( ! command.downloadErrors || err.options.external || err.statusCode == 404 ) {
                 return Promise.reject( new Error( `Load error ${err.statusCode} ${err.options.uri || err.options.url}` ))
             }
-            fatal( 'Load error', err.statusCode, err.options.uri || err.options.url )
+            fatal( 'Load error', err.statusCode, err.options.uri || err.options.url, err.error.toString())
             return Promise.reject( new Error( 'Load error' ))
         })
         .then( resp => {
@@ -1114,6 +1119,8 @@ function main () {
     .option( '--no-images', "don't download images" )
     .option( '--no-css', "don't page styling" )
     .option( '--no-pages', "don't save downloaded pages" )
+    .option( '-e, --no-download-errors', "ignore download errors, 404 error is ignored anyway" )
+    .option( '-x, --retry-external [times]', "number of retries on external site error" )
     .option( '--user-agent [firefox or string]', "set user agent" )
     .option( '-p, --url-replace [parrern|replacement,...]', "URL replacements", ( patterns ) => {
         const repls = patterns.split( ',' )
