@@ -290,10 +290,20 @@ class WikiItem {
             )
     }
 
+    urlReplacements () {
+        if ( typeof command.urlReplace != 'object' ) {
+            return this.url
+        } else {
+            return command.urlReplace.reduce(
+                ( acc, [ patt, repl ]) => acc.replace( patt, repl ),
+                this.url
+            )
+        }
+    }
 
     load () {
         return http({
-                url: this.url,
+                url: this.urlReplacements(),
                 encoding: null,
             },
             this.loadPriority
@@ -1110,7 +1120,10 @@ function main () {
     .option( '--no-css', "don't page styling" )
     .option( '--no-pages', "don't save downloaded pages" )
     .option( '--user-agent [firefox or string]', "set user agent" )
-
+    .option( '-p, --url-replace [parrern|replacement,...]', "URL replacements", ( patterns ) => {
+        const repls = patterns.split( ',' )
+        return repls.map( r => r.split( '|' ))
+        } )
     .parse( process.argv )
 
     log( command.opts() )
