@@ -1,8 +1,7 @@
 #!/bin/sh
 ":" //# -*- mode: js -*-; exec /usr/bin/env TMPDIR=/tmp node --max-old-space-size=2000 --stack-size=42000 "$0" "$@"
 
-// rm -r ru.wikivoyage.org  ; time ./wikizimmer.js https://ru.wikivoyage.org/wiki/Суздаль 2>&1 | tee zz.log
-// rm -r ru.wikivoyage.org  ; node --inspect --debug-brk ./wikizimmer.js https://ru.wikivoyage.org/wiki/Суздаль 2>&1 | tee zz.log
+// node --inspect --debug-brk
 
 "use strict"
 
@@ -39,7 +38,7 @@ const osPath = require( 'path' )
 const urlconv = require('url')
 const crypto = require("crypto")
 
-const argv = require('commander')
+const command = require('commander')
 const fs = require('fs-extra')
 const Promise = require('bluebird')
 const requestPromise = require('request-promise')
@@ -677,13 +676,13 @@ class Image extends PageComponent {
     }
 /*
     data () {
-        if (! saveImages )
+        if (! command.images )
             return null
         return super.data()
     }
 */
     process () {
-        if (! saveImages )
+        if (! command.images )
             return Promise.resolve( this.localPath() )
         return super.process()
     }
@@ -939,8 +938,8 @@ function batchRedirects ( pageInfos ) {
     })
 }
 
-function batchPages ( options ) {
-    const pageList = options.titles
+function batchPages () {
+    const pageList = command.titles
     const queryPageLimit = 500
     const queryMaxTitles = 50
 
@@ -997,7 +996,7 @@ function batchPages ( options ) {
                     }
                     return null
                 }
-                if ( ! savePages ) {
+                if ( ! command.pages ) {
                     return null
                 }
                 log( '---', pageInfo.title )
@@ -1024,7 +1023,7 @@ function batchPages ( options ) {
 }
 
 function loadCss( dom ) {
-    if (! saveCss )
+    if (! command.css )
         return Promise.resolve()
     const css = new GlobalCss( dom )
     return css.process()
@@ -1032,7 +1031,7 @@ function loadCss( dom ) {
 
 function initMetadataStorage ( samplePageDOM ) {
 
-    var dbName = osPath.join( wiki.saveDir, 'metadata.db' )
+    let dbName = osPath.join( wiki.saveDir, 'metadata.db' )
 
     return fs.unlink( dbName )
     .catch( () => null )
@@ -1080,18 +1079,14 @@ function closeMetadataStorage () {
     return indexerDb.close()
 }
 
-function core ( samplePage, options ) {
-    let titles = options.titles
-    saveImages = ! options.noimages
-    saveCss = ! options.nocss
-    savePages = ! options.nopages
+function core ( samplePage ) {
 
-    processSamplePage( samplePage, options.rmdir )
+    processSamplePage( samplePage, command.rmdir )
     .then( initMetadataStorage )
     .then( loadCss )
     .then( getSiteInfo )
     .then( loadTemplate )
-    .then( () => batchPages( { titles }))
+    .then( () => batchPages())
     .then( saveMetadata )
     .then( saveMimeTypes )
     .then( closeMetadataStorage )
@@ -1100,7 +1095,7 @@ function core ( samplePage, options ) {
 
 function main () {
 
-    argv
+    command
     .version( packageInfo.version )
     .arguments( '<wiki-page-URL>' )
     .description( `Dump a static-HTML snapshot of a MediaWiki-powered wiki.
@@ -1108,18 +1103,16 @@ function main () {
   Where:
     wiki-page-URL \t URL of a sample page at the wiki to be dumped.
     \t\t\t This page's styling will be used as a template for all pages in the dump.` )
-    .option( '-t, --titles', 'get only titles listed (separated by "|")' )
+    .option( '-t, --titles [titles]', 'get only titles listed (separated by "|")' )
     .option( '-r, --rmdir', 'delete destination directory before processing the source' )
-    .option( '-noimages', "don't download images" )
-    .option( '-nocss', "don't page styling" )
-    .option( '-nopages', "don't save downloaded pages" )
+    .option( '--no-images', "don't download images" )
+    .option( '--no-css', "don't page styling" )
+    .option( '--no-pages', "don't save downloaded pages" )
     .parse( process.argv )
 
-    log( argv )
+    log( command.opts() )
 
-    const args = argv.args
-
-    core( args[0], argv )
+    core( command.args[0] )
 }
 
 main ()
