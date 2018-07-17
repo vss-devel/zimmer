@@ -953,6 +953,9 @@ function batchPages () {
     const pageList = command.titles
     const queryPageLimit = 500
     const queryMaxTitles = 50
+    const exclude = command.exclude ?
+        new RegExp( command.exclude ) :
+        { test: () => false }
 
     return Promise.coroutine( function* () {
         const queryOpt = {
@@ -1010,7 +1013,7 @@ function batchPages () {
                     }
                     return null
                 }
-                if ( ! command.pages ) {
+                if ( ! command.pages || exclude.test( pageInfo.title )) {
                     log( 'x' , pageInfo.title )
                     return null
                 }
@@ -1123,6 +1126,7 @@ function main () {
     wiki-page-URL \t URL of a sample page at the wiki to be dumped.
     \t\t\t This page's styling will be used as a template for all pages in the dump.` )
     .option( '-t, --titles [titles]', 'get only titles listed (separated by "|")' )
+    .option( '-x, --exclude [title regexp]', 'exclude titles by a regular expression' )
     .option( '-r, --rmdir', 'delete destination directory before processing the source' )
     .option( '--no-images', "don't download images" )
     .option( '--no-css', "don't page styling" )
