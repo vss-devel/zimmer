@@ -85,6 +85,10 @@ function log ( ...args ) {
     console.log( elapsedStr( startTime ), ... args )
 }
 
+function warn ( ...args ) {
+    log( ...args )
+}
+
 function fatal ( ...args ) {
     log( ...args )
     osProcess.exit( 1 )
@@ -384,7 +388,7 @@ class WikiItem {
             return Promise.reject( new Error( 'data == null' ))
 
         const savePath = wiki.saveDir + this.localPath()
-        log( '>', savePath )
+        log( '+', savePath )
 
         return fs.outputFile( savePath, data )
         .then( () => this.localPath() )
@@ -416,7 +420,7 @@ class WikiItem {
         .then( () => this.storeMetadata() )
         .then( () => this.localPath() )
         .catch( err => {
-            console.warn( 'Save error', err.name, err.message, this.url, '->', this.localPath())
+            warn( 'Save error', err.name, err.message, this.url, '->', this.localPath())
             return ''
         })
     }
@@ -601,7 +605,7 @@ class Redirect extends ArticleStub {
                 this.toFragment,
             ]
 
-            log( '-->', this.title || this.url, row)
+            log( '>', this.title || this.url, row)
 
             indexerDb.run(
                 'INSERT INTO redirects (id, targetKey, fragment) VALUES (?,?,?)',
@@ -997,7 +1001,7 @@ function batchPages () {
                 }
                 const pageInfo = pages[ key ]
                 if ( pageInfo.redirect != null ) {
-                    log( '>>>' , pageInfo.title )
+                    log( '>' , pageInfo.title )
                     redirects.push( pageInfo )
                     if ( redirects.length == queryMaxTitles ) {
                         const res = batchRedirects( redirects )
@@ -1007,9 +1011,10 @@ function batchPages () {
                     return null
                 }
                 if ( ! command.pages ) {
+                    log( 'x' , pageInfo.title )
                     return null
                 }
-                log( '---', pageInfo.title )
+                log( '#', pageInfo.title )
                 return new Article( pageInfo ).process()
             })
             done.push( batchRedirects( redirects ))
