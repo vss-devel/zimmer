@@ -237,7 +237,7 @@ function pooledRequest( request, referenceUri, maxTokens = 1, interval = 10 ) {
         query.timeout = requestTimeout
         query.forever = true
 
-        log('-', decodeURI( query.url ), query.qs || '')
+        log( '^', decodeURI( query.url ), query.qs || '' )
 
         return query
     }
@@ -1131,8 +1131,8 @@ function main () {
     .option( '--no-images', "don't download images" )
     .option( '--no-css', "don't page styling" )
     .option( '--no-pages', "don't save downloaded pages" )
-    .option( '-e, --no-download-errors', "ignore download errors, 404 error is ignored anyway" )
-    .option( '-x, --retry-external [times]', "number of retries on external site error" )
+    .option( '-d, --no-download-errors', "ignore download errors, 404 error is ignored anyway" )
+    .option( '-e, --retry-external [times]', "number of retries on external site error" )
     .option( '--user-agent [firefox or string]', "set user agent" )
     .option( '-p, --url-replace [parrern|replacement,...]', "URL replacements", ( patterns ) => {
         const repls = patterns.split( ',' )
