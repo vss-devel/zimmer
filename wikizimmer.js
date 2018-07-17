@@ -933,8 +933,8 @@ function batchRedirects ( pageInfos ) {
             let rdr
             for ( let from = item.title; target == null; from = rdr.to ) {
                 rdr = redirectsByFrom[ from ]
-                if ( rdr.tointerwiki != null || rdr.to == item.title )
-                    return null // interwiki or circular redirection
+                if ( ! rdr || rdr.tointerwiki != null || rdr.to == item.title )
+                    return null // dead end, interwiki or circular redirection
                 target = targetsByTitle[ rdr.to ]
             }
             if ( target.missing != null )
