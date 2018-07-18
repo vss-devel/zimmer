@@ -804,11 +804,11 @@ class File extends DataItem {
 
     preProcess ( data ) {
         switch ( this.mimeType ) {
+            case 'image/jpeg':
+                return this.processJpeg( data )
             //~ case 'image/gif':
             case 'image/png':
                 return this.processImage( data )
-            case 'image/jpeg':
-                return this.processJpeg( data )
             default:
                 return data
         }
@@ -823,6 +823,10 @@ class File extends DataItem {
             [ '-quality', argv.jpegquality, data.length < 20000 ? '-baseline' : '-progressive' ],
             data
         )
+        .catch( err => {
+            log( 'Error otimizing jpeg', err, this )
+            return data
+        })
     }
 
     processImage ( data ) {
@@ -863,6 +867,10 @@ class File extends DataItem {
                 return data
             return image.toBuffer()
         }).call( this )
+        .catch( err => {
+            log( 'Error otimizing image', err, this )
+            return data
+        })
     }
 }
 
