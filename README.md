@@ -69,13 +69,18 @@ $ wikizimmer -h
 
   Options:
 
-    -V, --version  output the version number
-    -t, --titles   get only titles listed (separated by "|")
-    -r, --rmdir    delete destination directory before processing the source
-    -noimages      don't download images
-    -nocss         don't page styling
-    -nopages       don't save downloaded pages
-    -h, --help     output usage information
+    -V, --version                                output the version number
+    -t, --titles [titles]                        get only titles listed (separated by "|")
+    -x, --exclude [title regexp]                 exclude titles by a regular expression
+    -r, --rmdir                                  delete destination directory before processing the source
+    --no-images                                  don't download images
+    --no-css                                     don't page styling
+    --no-pages                                   don't save downloaded pages
+    -d, --no-download-errors                     ignore download errors, 404 error is ignored anyway
+    -e, --retry-external [times]                 number of retries on external site error
+    --user-agent [firefox or string]             set user agent
+    -p, --url-replace [parrern|replacement,...]  URL replacements
+    -h, --help                                   output usage information
 ```
 
 ```
