@@ -583,7 +583,7 @@ class Item {
         buf.writeUIntLE( mimeIndex,     0, 2 )
         buf.writeUIntLE( 0,             2, 1 ) // parameters length
         buf.write( this.nameSpace,      3, 1 )
-        buf.writeUIntLE( this.revision, 4, 4 )
+        buf.writeIntLE( this.revision, 4, 4 )
         buf.writeUIntLE( clusterIdx || redirectTarget || 0, 8, 4 ) // or redirect target article index
         if ( ! isRedirect )
             buf.writeUIntLE( blobIdx,  12, 4 )
