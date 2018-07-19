@@ -278,10 +278,52 @@ function apiPost( params ) {
     })
 }
 
+class NameSpaceSet {
+    constructor ( SiteInfo ) {
+        this.nameSpaces = {}
+        this.nsQueue = []
+        this.nsUsed = new Set
+        Object.keys( SiteInfo.namespaces ).map( ns => {
+            const nsInfo = SiteInfo.namespaces[ ns ]
+            this.nameSpaces[ nsInfo.canonical ] = this.nameSpaces[ nsInfo[ '*' ]] = this.nameSpaces[ ns ] = nsInfo
+        })
+        if ( SiteInfo.namespacealiases ) {
+            SiteInfo.namespacealiases.map( nsInfo => this.nameSpaces[ nsInfo[ '*' ]] = this.nameSpaces[ nsInfo.id ])
+        }
+    }
+
+    check ( nsId ) {
+        return this.nsUsed.has( nsId )
+    }
+
+    init ( nsList = '0' ) {
+        nsList.split( ',' ).map( ns => this.request( ns ))
+    }
+
+    request ( ns ) {
+        const nsId = this.nameSpaces[ ns ]
+        if ( ! nsId ) {
+            fatal( 'Incorrect name space', ns )
+            return
+        }
+        if ( ! this.check( nsId )) {
+            this.nsUsed.add( nsId )
+            this.nsQueue.push( nsId )
+        }
+    }
+
+    * [Symbol.iterator] () {
+        while ( this.nsQueue.length != 0 ) {
+            yield this.nsQueue.shift().id
+        }
+    }
+}
+
 const wiki = {
     saveDir: null,
     apiUrl: null,
     metadata: {},
+    nameSpaces: null,
 }
 
 class WikiItem {
@@ -848,6 +890,7 @@ function getSiteInfo () {
         wiki.articlePath = info.general.articlepath.split('$')[0]
         wiki.articleBase = info.general.base.split( wiki.articlePath )[0] + wiki.articlePath
         wiki.baseParsed = urlconv.parse( wiki.articleBase )
+        wiki.nameSpaces = new NameSpaceSet( info )
     }) ()
 }
 
@@ -946,7 +989,7 @@ function batchRedirects ( pageInfos ) {
             }
             if ( target.missing != null )
                 return null  // no target exists
-            if ( target.ns != 0 )
+            if ( ! wiki.nameSpaces.check( target.ns ))
                 return null
             item.to = target
             item.toFragment = rdr.tofragment
@@ -956,34 +999,31 @@ function batchRedirects ( pageInfos ) {
     })
 }
 
-function batchPages () {
-    const pageList = command.titles
+function batchPages ( nameSpace ) {
     const queryPageLimit = 500
     const queryMaxTitles = 50
-    const exclude = command.exclude ?
-        new RegExp( command.exclude ) :
-        { test: () => false }
 
     return Promise.coroutine( function* () {
-        const queryOpt = {
+        const exclude = command.exclude ?
+            new RegExp( command.exclude ) :
+            { test: () => false }
+        const query = {
             action: 'query',
             prop: 'info',
             inprop: 'url',
         }
-        if ( pageList ) {
-            queryOpt.titles = pageList
-        } else {
-            Object.assign(
-                queryOpt,
-                {
-                    generator: 'allpages',
-                    //~ gapfilterredir: redirects ? 'redirects' : 'nonredirects' ,
-                    gaplimit: queryPageLimit,
-                    gapnamespace: '0',
-                    rawcontinue: '',
-                }
-            )
-        }
+        Object.assign(
+            query,
+            nameSpace == null ?
+            {   titles: command.titles } :
+            {
+                generator: 'allpages',
+                gapnamespace: nameSpace,
+                gaplimit: queryPageLimit,
+                rawcontinue: '',
+            }
+        )
+
         let continueFrom = ''
         while ( true ) {
             yield indexerDb.run(
@@ -995,7 +1035,7 @@ function batchPages () {
 
             yield indexerDb.run( 'BEGIN' )
 
-            const resp = yield api( queryOpt )
+            const resp = yield api( query )
             let pages = {}
             try {
                 pages = resp.query.pages
@@ -1036,11 +1076,26 @@ function batchPages () {
             try {
                 const continueKey = Object.keys( resp[ 'query-continue' ].allpages )[ 0 ]
                 continueFrom = resp[ 'query-continue' ].allpages[ continueKey ]
-                queryOpt[ continueKey ] = continueFrom
+                query[ continueKey ] = continueFrom
                 log( '...', continueFrom )
             }
             catch ( e ) {
                 log( 'getPages', 'No continue key' )
+            }
+        }
+    })()
+}
+
+function getPages () {
+    return Promise.coroutine( function* () {
+        if ( command.titles ) {
+            log( 'Titles', command.titles )
+            yield batchPages()
+        } else {
+            wiki.nameSpaces.init( command.nameSpaces )
+            for ( let nameSpace of wiki.nameSpaces ) {
+                log( 'Name Space', nameSpace )
+                yield batchPages( nameSpace )
             }
         }
         log( '**************** done' )
@@ -1115,7 +1170,7 @@ function core ( samplePage ) {
     .then( loadCss )
     .then( getSiteInfo )
     .then( loadTemplate )
-    .then( () => batchPages())
+    .then( () => getPages())
     .then( saveMetadata )
     .then( saveMimeTypes )
     .then( closeMetadataStorage )
@@ -1134,6 +1189,7 @@ function main () {
     \t\t\t This page's styling will be used as a template for all pages in the dump.` )
     .option( '-t, --titles [titles]', 'get only titles listed (separated by "|")' )
     .option( '-x, --exclude [title regexp]', 'exclude titles by a regular expression' )
+    .option( '-s, --name-spaces [name-space,...]', 'name spaces to download (default: 0, i.e main)' )
     .option( '-r, --rmdir', 'delete destination directory before processing the source' )
     .option( '--no-images', "don't download images" )
     .option( '--no-css', "don't page styling" )
