@@ -85,7 +85,7 @@ function log ( ...args ) {
     console.log( elapsedStr( startTime ), ... args )
 }
 
-function warn ( ...args ) {
+function warning ( ...args ) {
     log( ...args )
 }
 
@@ -179,10 +179,11 @@ function pooledRequest( request, referenceUri, maxTokens = 1, interval = 10 ) {
                 const retryCause = retryStatusCodes.includes( error.statusCode ) ? error.statusCode :
                     error.cause && retryErrorCodes.includes( error.cause.code ) ? error.cause.code : false
                 if ( retryCause ) {
-                    log( 'retry request', interval, error.name, retryCause, query )
+                    log( 'retry request', interval, error.name, retryCause, error.options.uri || error.options.url ) // , query )
                     this.retry( query, error )
                     return
                 }
+                warning( 'HTTP error',  error.cause && error.cause.code || error.statusCode, error.options.uri || error.options.url ) // , error.error && error.error.toString().trim())
                 query.reject( error )
                 return
             })
@@ -361,11 +362,11 @@ class WikiItem {
             },
             this.loadPriority
         )
-        .catch( err => {
-            if ( ! command.downloadErrors || err.options.external || err.statusCode == 404 ) {
-                return Promise.reject( new Error( `Load error ${err.statusCode} ${err.options.uri || err.options.url}` ))
+        .catch( error => {
+            if ( ! command.downloadErrors || error.options.external || error.statusCode == 404 ) {
+                return Promise.reject( error )
             }
-            fatal( 'Load error', err.statusCode, err.options.uri || err.options.url, err.error.toString())
+            fatal( 'Fatal load error' )
             return Promise.reject( new Error( 'Load error' ))
         })
         .then( resp => {
@@ -469,7 +470,7 @@ class WikiItem {
         .then( () => this.storeMetadata() )
         .then( () => this.localPath() )
         .catch( err => {
-            warn( 'Save error', err.name, err.message, this.url, '->', this.localPath())
+            warning( 'Save error', err.name, this.url, '->', this.localPath())
             return ''
         })
     }
@@ -1170,7 +1171,7 @@ function core ( samplePage ) {
     .then( loadCss )
     .then( getSiteInfo )
     .then( loadTemplate )
-    .then( () => getPages())
+    .then( getPages )
     .then( saveMetadata )
     .then( saveMimeTypes )
     .then( closeMetadataStorage )
