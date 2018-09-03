@@ -1,7 +1,7 @@
 #!/bin/sh
 ":" //# -*- mode: js -*-; exec /usr/bin/env TMPDIR=/tmp node --max-old-space-size=2000 --stack-size=42000 "$0" "$@"
 
-// node --inspect --debug-brk
+// node --inspect-brk
 
 "use strict"
 
@@ -301,21 +301,21 @@ class NameSpaceSet {
         nsList.split( ',' ).map( ns => this.request( ns ))
     }
 
-    request ( ns ) {
-        const nsId = this.nameSpaces[ ns ]
-        if ( ! nsId ) {
-            fatal( 'Incorrect name space', ns )
+    request ( nsIdx ) {
+        const ns = this.nameSpaces[ nsIdx ]
+        if ( ! ns ) {
+            fatal( 'This wiki does not have name space', nsIdx )
             return
         }
-        if ( ! this.check( nsId )) {
-            this.nsUsed.add( nsId )
-            this.nsQueue.push( nsId )
+        if ( ! this.check( ns.id )) {
+            this.nsUsed.add( ns.id )
+            this.nsQueue.push( ns.id )
         }
     }
 
     * [Symbol.iterator] () {
         while ( this.nsQueue.length != 0 ) {
-            yield this.nsQueue.shift().id
+            yield this.nsQueue.shift()
         }
     }
 }
@@ -1047,7 +1047,7 @@ function batchPages ( nameSpace ) {
             }
             let redirects = []
             const done = Object.keys( pages ).map( key => {
-                if ( parseInt( key ) < 0 ) {
+                if ( parseInt( key ) < 0 ) { // no such page
                     return null
                 }
                 const pageInfo = pages[ key ]
@@ -1062,7 +1062,7 @@ function batchPages ( nameSpace ) {
                     return null
                 }
                 if ( ! command.pages || exclude.test( pageInfo.title )) {
-                    log( 'x' , pageInfo.title )
+                    log( 'x', pageInfo.title )
                     return null
                 }
                 log( '#', pageInfo.title )
