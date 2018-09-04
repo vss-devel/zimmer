@@ -1223,7 +1223,6 @@ function resolveRedirects () {
             var target = row.targetRow - 1
             if ( path == 'mainpage' ) {
                 mainPage.target = target
-                continue
             }
 
             yield new ResolvedRedirect ( row.id, nameSpace, path, title, target, row.revision )
@@ -1367,7 +1366,7 @@ function getHeader () {
     return buf
 }
 
-function stroreHeader() {
+function storeHeader() {
     var buf = Buffer.concat([ getHeader(), getMimeTypes() ])
     var fd = fs.openSync( outPath, 'r+' )
     fs.writeSync( fd, buf, 0, buf.length, 0 )
@@ -1523,7 +1522,7 @@ function finalise () {
     return Promise.coroutine( function* () {
         header.checksumPos = yield out.close() // close the output stream
         yield indexerDb.close()
-        yield stroreHeader()
+        yield storeHeader()
         yield calculateFileHash()
     }) ()
 }
