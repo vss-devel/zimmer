@@ -6,7 +6,7 @@ The package consists of 2 scripts:
 
 - zimmer.js builds a ZIM file from a static HTML files collection. Historically, zimmer.js is mostly a drop-in replacement for [zimwriterfs](https://github.com/wikimedia/openzim/tree/master/zimwriterfs) with a notable exception: it doesn't support *withFullTextIndex* option (index format is [not documented](http://www.openzim.org/wiki/ZIM_Index_Format)).
 
-The major point is that `wikizimmer.js` unlikely to [mwoffliner](https://github.com/openzim/mwoffliner) doesn't depend on the  [Parsoid](https://www.mediawiki.org/wiki/Parsoid) and [Redis](https://redis.io/) and `zimmer.js` unlikely to [zimwriterfs](https://github.com/wikimedia/openzim/tree/master/zimwriterfs) doesn't depend on the [zimlib](http://www.openzim.org/wiki/Zimlib).
+The major point is that `wikizimmer.js` unlike to [mwoffliner](https://github.com/openzim/mwoffliner) doesn't depend on the  [Parsoid](https://www.mediawiki.org/wiki/Parsoid) and [Redis](https://redis.io/) and `zimmer.js` unlike to [zimwriterfs](https://github.com/wikimedia/openzim/tree/master/zimwriterfs) doesn't depend on the [zimlib](http://www.openzim.org/wiki/Zimlib).
 
 The package is relatively easy to install and it can even process some wikis running rather old versions of the Mediawiki engine.
 
