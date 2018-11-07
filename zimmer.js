@@ -43,7 +43,7 @@ const expandHomeDir = require( 'expand-home-dir' )
 const lzma = require( 'lzma-native' )
 const cheerio = require('cheerio')
 
-const uuid = require( "uuid" )
+const uuidv4 = require( "uuid/v4" )
 const csvParse = require( 'csv-parse' )
 const csvParseSync = require( 'csv-parse/lib/sync' )
 const zlib = require( 'mz/zlib' )
@@ -90,7 +90,7 @@ var headerLength = 80
 var header = {
     magicNumber: 72173914,  //    integer      0  4   Magic number to recognise the file format, must be 72173914
     version: 5,             //    integer      4  4   ZIM=5, bytes 1-2: major, bytes 3-4: minor version of the ZIM file format
-    uuid: null,             //    integer      8 16  unique id of this zim file
+    uuid: uuidv4( {}, Buffer.alloc( 16 )), // integer 8 16   unique id of this zim file
     articleCount: null,     //    integer     24  4   total number of articles
     clusterCount: null,     //    integer     28  4   total number of clusters
     urlPtrPos: null,        //    integer     32  8   position of the directory pointerlist ordered by URL
@@ -1347,7 +1347,7 @@ function getHeader () {
     writeUIntLE( buf, header.magicNumber,     0, 4 )
     writeUIntLE( buf, header.version,         4, 4 )
 
-    uuid.v4( null, buf,                      8 )
+    header.uuid.copy( buf,                    8 )
 
     writeUIntLE( buf, header.articleCount,    24, 4 )
     writeUIntLE( buf, header.clusterCount,    28, 4 )
