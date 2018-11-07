@@ -1003,18 +1003,25 @@ class RawFile extends File {
 
 // Keys
 // Key             Mandatory   Description     Example
-// Title           yes     title of zim file   English Wikipedia
-// Creator         yes     creator(s) of the ZIM file content  English speaking Wikipedia contributors
-// Publisher       yes     creator of the ZIM file itself  Wikipedia user Foobar
-// Date            yes     create date (ISO - YYYY-MM-DD)  2009-11-21
-// Description     yes     description of content  This ZIM file contains all articles (without images) from the english Wikipedia by 2009-11-10.
-// Language        yes     ISO639-3 language identifier (if many, comma separated)     eng
-// Relation        no      URI of external related ressources
-// Source          no      URI of the original source  http://en.wikipedia.org/
-// Counter         no      Number of non-redirect entries per mime-type    image/jpeg=5;image/gif=3;image/png=2;...
+//
+// Name         yes     A human readable identifier for the resource. It's the same across versions (should be stable across time). MUST be prefixed by the packager name.  kiwix.wikipedia_en.nopics
+// Title        yes     title of zim file   English Wikipedia
+// Creator      yes     creator(s) of the ZIM file content  English speaking Wikipedia contributors
+// Publisher    yes     creator of the ZIM file itself  Wikipedia user Foobar
+// Date         yes     create date (ISO - YYYY-MM-DD)  2009-11-21
+// Description  yes     description of content  This ZIM file contains all articles (without images) from the english Wikipedia by 2009-11-10.
+// Language     yes     ISO639-3 language identifier (if many, comma separated)     eng
+// Tags         no      A list of tags  nopic;wikipedia
+// Relation     no      URI of external related ressources
+// Source       no      URI of the original source  http://en.wikipedia.org/
+// Counter      no      Number of non-redirect entries per mime-type    image/jpeg=5;image/gif=3;image/png=2;...
+//
+// Favicon a favicon (48x48) is also mandatory and should be located at /-/favicon
 
 function loadMetadata () {
+    const outParsed = osPath.parse( outPath )
     const metadata = [
+        [ 'Name', outParsed.base ],
         [ 'Title', argv.title ],
         [ 'Creator', argv.creator ],
         [ 'Publisher', argv.publisher ],
