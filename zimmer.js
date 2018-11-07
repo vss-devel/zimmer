@@ -172,20 +172,20 @@ function log ( arg ) {
     argv && argv.verbose && console.log.apply( this, arguments )
 }
 
-function writeUIntLE( buf, number, offset, byteLength ) {
+function writeUIntLE( buf, value, offset, byteLength ) {
     offset = offset || 0
-    if ( typeof number == 'string' ) {
-        byteLength = buf.write( number, offset )
+    if ( typeof value == 'string' ) {
+        byteLength = buf.write( value, offset )
         return offset + byteLength
     }
     if ( byteLength == 8 ) {
-        var low = number & 0xffffffff
-        var high = ( number - low ) / 0x100000000 - ( low < 0 ? 1 : 0 )
+        var low = value & 0xffffffff
+        var high = ( value - low ) / 0x100000000 - ( low < 0 ? 1 : 0 )
         buf.writeInt32LE( low, offset )
         buf.writeUInt32LE( high, offset + 4 )
         return offset + byteLength
     } else {
-        return buf.writeIntLE( buf, number, offset, byteLength )
+        return buf.writeUIntLE( value, offset, byteLength )
     }
 }
 
@@ -576,17 +576,16 @@ class Item {
 
         const isRedirect = redirectTarget != null // redirect dirEntry is shorter in 4 bytes
         var buf = Buffer.allocUnsafe( isRedirect ? 12 : 16 )
-        var mimeIndex = this.mimeId()
+        var mimeId = this.mimeId()
 
-        log( 'storeDirEntry', mimeIndex, this )
-
-        buf.writeUIntLE( mimeIndex,     0, 2 )
-        buf.writeUIntLE( 0,             2, 1 ) // parameters length
-        buf.write( this.nameSpace,      3, 1 )
+        log( 'storeDirEntry', mimeId, this )
+        writeUIntLE( buf, mimeId,      0, 2 )
+        writeUIntLE( buf, 0,           2, 1 ) // parameters length
+        buf.write( this.nameSpace,     3, 1 )
         buf.writeIntLE( this.revision, 4, 4 )
-        buf.writeUIntLE( clusterIdx || redirectTarget || 0, 8, 4 ) // or redirect target article index
+        writeUIntLE( buf, clusterIdx || redirectTarget || 0, 8, 4 ) // or redirect target article index
         if ( ! isRedirect )
-            buf.writeUIntLE( blobIdx,  12, 4 )
+            writeUIntLE( buf, blobIdx,  12, 4 )
 
         var urlBuf = Buffer.from( this.path + '\0' )
         var titleBuf = Buffer.from( this.title + '\0' )
@@ -1247,7 +1246,7 @@ function saveIndex ( query, byteLength, rowField, count, logInfo ) {
             log( logInfo, i, row )
             i++
             var buf = Buffer.allocUnsafe( byteLength )
-            buf.writeUIntLE( row[ rowField ], 0, byteLength )
+            writeUIntLE( buf, row[ rowField ], 0, byteLength )
 
             var offset = yield out.write( buf )
             if ( ! startOffset )
@@ -1345,23 +1344,23 @@ function getHeader () {
     log( 'Header', header )
 
     var buf = Buffer.alloc( headerLength )
-    buf.writeUIntLE( header.magicNumber,     0, 4 )
-    buf.writeUIntLE( header.version,         4, 4 )
+    writeUIntLE( buf, header.magicNumber,     0, 4 )
+    writeUIntLE( buf, header.version,         4, 4 )
 
     uuid.v4( null, buf,                      8 )
 
-    buf.writeUIntLE( header.articleCount,    24, 4 )
-    buf.writeUIntLE( header.clusterCount,    28, 4 )
+    writeUIntLE( buf, header.articleCount,    24, 4 )
+    writeUIntLE( buf, header.clusterCount,    28, 4 )
 
-    buf.writeUIntLE( header.urlPtrPos,       32, 8 )
-    buf.writeUIntLE( header.titlePtrPos,     40, 8 )
-    buf.writeUIntLE( header.clusterPtrPos,   48, 8 )
-    buf.writeUIntLE( header.mimeListPos,     56, 8 )
+    writeUIntLE( buf, header.urlPtrPos,       32, 8 )
+    writeUIntLE( buf, header.titlePtrPos,     40, 8 )
+    writeUIntLE( buf, header.clusterPtrPos,   48, 8 )
+    writeUIntLE( buf, header.mimeListPos,     56, 8 )
 
-    buf.writeUIntLE( header.mainPage,        64, 4 )
-    buf.writeUIntLE( header.layoutPage,      68, 4 )
+    writeUIntLE( buf, header.mainPage,        64, 4 )
+    writeUIntLE( buf, header.layoutPage,      68, 4 )
 
-    buf.writeUIntLE( header.checksumPos,     72, 8 )
+    writeUIntLE( buf, header.checksumPos,     72, 8 )
 
     return buf
 }
