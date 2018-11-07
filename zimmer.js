@@ -69,8 +69,6 @@ var out // output file writer
 var indexerDb
 var dirQueue
 
-var articleCount = 0
-
 let preProcessed = false
 
 var mainPage = {}
@@ -93,8 +91,8 @@ var header = {
     versionMajor: 5,
     versionMinor: 0,
     uuid: uuidv4( {}, Buffer.alloc( 16 )), // integer 8 16   unique id of this zim file
-    articleCount: null,     //    integer     24  4   total number of articles
-    clusterCount: null,     //    integer     28  4   total number of clusters
+    articleCount: 0,     //    integer     24  4   total number of articles
+    clusterCount: 0,     //    integer     28  4   total number of clusters
     urlPtrPos: null,        //    integer     32  8   position of the directory pointerlist ordered by URL
     titlePtrPos: null,      //    integer     40  8   position of the directory pointerlist ordered by Title
     clusterPtrPos: null,    //    integer     48  8   position of the cluster pointer list
@@ -325,8 +323,8 @@ var ClusterSizeThreshold = 4 * 1024 * 1024
 // ClusterSizeThreshold = 2 * 1024
 
 class Cluster {
-    constructor ( id, compressible ) {
-        this.id = id
+    constructor ( compressible ) {
+        this.id = header.clusterCount ++
         this.compressible = compressible
         this.blobs = []
         this.size = 0
@@ -407,9 +405,8 @@ class Cluster {
 // ClusterWriter
 //
 var ClusterWriter = {
-    count: 2,
-    true: new Cluster( 0, true ), // compressible cluster
-    false: new Cluster( 1, false ), // uncompressible cluster
+    true: new Cluster( true ), // compressible cluster
+    false: new Cluster( false ), // uncompressible cluster
     pool: genericPool.createPool(
         {
             create () { return Promise.resolve( Symbol() ) },
@@ -427,7 +424,7 @@ var ClusterWriter = {
         var blobNum = cluster.append( data )
 
         if ( blobNum === false ) { // store to a new cluster
-            ClusterWriter[ compressible ] = new Cluster( ClusterWriter.count ++, compressible )
+            ClusterWriter[ compressible ] = new Cluster( compressible )
             const ready = ClusterWriter.pool.acquire()
 
             ready.then( token => cluster.save()
@@ -470,7 +467,7 @@ var ClusterWriter = {
             ORDER BY id
             ;
             `,
-            8, 'offset', ClusterWriter.count, 'storeClusterIndex'
+            8, 'offset', header.clusterCount, 'storeClusterIndex'
         )
         .then( offset => header.clusterPtrPos = offset )
     },
@@ -574,7 +571,7 @@ class Item {
             return Promise.resolve()
         }
 
-        articleCount++
+        header.articleCount++
 
         const isRedirect = redirectTarget != null // redirect dirEntry is shorter in 4 bytes
         var buf = Buffer.allocUnsafe( isRedirect ? 12 : 16 )
@@ -1286,7 +1283,7 @@ function storeUrlIndex () {
         USING (id)
         ORDER BY urlSorted.rowid
         ;`,
-        8, 'offset', articleCount, 'storeUrlIndex'
+        8, 'offset', header.articleCount, 'storeUrlIndex'
     )
     .then( offset => header.urlPtrPos = offset )
 }
@@ -1310,7 +1307,7 @@ function storeTitleIndex () {
         'USING (id) ' +
         'ORDER BY titleKey ' +
         ';',
-        4, 'articleNumber', articleCount, 'storeTitleIndex'
+        4, 'articleNumber', header.articleCount, 'storeTitleIndex'
     )
     .then( offset => header.titlePtrPos = offset )
 }
@@ -1338,11 +1335,9 @@ function getMimeTypes () {
 }
 
 function getHeader () {
-    header.articleCount = articleCount
-    header.clusterCount = ClusterWriter.count
     header.mainPage = mainPage.target || header.mainPage
 
-    //~ log( 'Header', 'articleCount', articleCount, 'clusterCount', ClusterWriter.count, 'mainPage', mainPage )
+    //~ log( 'Header', 'articleCount', header.articleCount, 'clusterCount', header.clusterCount, 'mainPage', mainPage )
     log( 'Header', header )
 
     var buf = Buffer.alloc( headerLength )
