@@ -796,75 +796,71 @@ class GlobalCss extends StyleItem {
         .then( chunks => chunks.join( '\n' ))
     }
 
-    transformCss( cssUrl ) {
-        return Promise.coroutine( function* () {
-            let css = new StyleItem( cssUrl )
-            const src = yield css.data()
+    async transformCss( cssUrl ) {
+        let css = new StyleItem( cssUrl )
+        const src = await css.data()
 
-            // collect urls using dummy replacements
-            const urlre = /(url\(['"]?)([^\)]*[^\)'"])(['"]?\))/g
-            const requests = []
-            src.replace( urlre, ( match, start, url, end ) => {
-                if ( ! url.startsWith( 'data:' )) {
-                    const cssItem = new StyleItem( urlconv.resolve( cssUrl, url ))
-                    requests.push( cssItem.process() )
-                }
+        // collect urls using dummy replacements
+        const urlre = /(url\(['"]?)([^\)]*[^\)'"])(['"]?\))/g
+        const requests = []
+        src.replace( urlre, ( match, start, url, end ) => {
+            if ( ! url.startsWith( 'data:' )) {
+                const cssItem = new StyleItem( urlconv.resolve( cssUrl, url ))
+                requests.push( cssItem.process() )
+            }
+            return match
+        })
+        const resolvedUrls = await Promise.all( requests )
+        const transformed = src.replace( urlre, ( match, start, url, end ) => {
+            const rurl = resolvedUrls.shift()
+            if ( rurl == null )
                 return match
-            })
-            const resolvedUrls = yield Promise.all( requests )
-            const transformed = src.replace( urlre, ( match, start, url, end ) => {
-                const rurl = resolvedUrls.shift()
-                if ( rurl == null )
-                    return match
-                return start + rurl.slice( 3 ) + end
-            })
+            return start + rurl.slice( 3 ) + end
+        })
 
-            const outcss = `/*
- *
- * from ${cssUrl}
- *
- */
-    ${transformed}
-    `
-            return outcss
-        }) ()
+        const outcss = `/*
+*
+* from ${cssUrl}
+*
+*/
+${transformed}
+`
+        return outcss
     }
 }
 
-function processSamplePage ( samplePageUrl,  rmdir) {
-    return Promise.coroutine( function* () {
-        const resp = yield requestPromise({
-            url: encodeurl( samplePageUrl ),
-            resolveWithFullResponse: true,
-        })
-        //~log(resp)
+async function processSamplePage ( samplePageUrl,  rmdir) {
+    const resp = await requestPromise({
+        url: encodeurl( samplePageUrl ),
+        resolveWithFullResponse: true,
+    })
+    //~log(resp)
 
-        // set base for further http requests
-        const realUrl = resp.request.href
-        http = pooledRequest( requestPromise, realUrl )
+    // set base for further http requests
+    const realUrl = resp.request.href
+    http = pooledRequest( requestPromise, realUrl )
 
-        // create download directory
-        const urlp = urlconv.parse( realUrl )
-        wiki.saveDir = sanitizeFN( urlp.hostname )
-        if ( rmdir )
-            yield fs.remove( wiki.saveDir )
-        yield fs.mkdirs( wiki.saveDir )
+    // create download directory
+    const urlp = urlconv.parse( realUrl )
+    wiki.saveDir = sanitizeFN( urlp.hostname )
+    if ( rmdir )
+        await fs.remove( wiki.saveDir )
+    await fs.mkdirs( wiki.saveDir )
 
-        const dom = cheerio.load( resp.body )
-        const historyLink = dom('#ca-history a').attr('href')
-        //~log(resp.request.href, historyLink, urlconv.resolve(resp.request.href, historyLink))
-        const parsedUrl = urlconv.parse(urlconv.resolve(resp.request.href, historyLink))
-        log(parsedUrl)
-        parsedUrl.search = null
-        parsedUrl.hash = null
-        const indexPhp = urlconv.format(parsedUrl)
-        parsedUrl.pathname = parsedUrl.pathname.replace('index.php', 'api.php')
+    const dom = cheerio.load( resp.body )
+    const historyLink = dom('#ca-history a').attr('href')
+    //~log(resp.request.href, historyLink, urlconv.resolve(resp.request.href, historyLink))
+    const parsedUrl = urlconv.parse(urlconv.resolve(resp.request.href, historyLink))
+    log(parsedUrl)
+    parsedUrl.search = null
+    parsedUrl.hash = null
+    const indexPhp = urlconv.format(parsedUrl)
+    parsedUrl.pathname = parsedUrl.pathname.replace('index.php', 'api.php')
 
-        wiki.apiUrl = urlconv.format(parsedUrl)
-        log(indexPhp, wiki.apiUrl)
+    wiki.apiUrl = urlconv.format(parsedUrl)
+    log(indexPhp, wiki.apiUrl)
 
-        return dom
-    })()
+    return dom
 }
 
 function loadTemplate () {
@@ -873,27 +869,25 @@ function loadTemplate () {
     .then( stub => (wiki.pageTemplate = stub))
 }
 
-function getSiteInfo () {
-    return Promise.coroutine(function* () {
-        const resp = yield api ({
-            action: 'query',
-            meta: 'siteinfo',
-            siprop: 'general|namespaces|namespacealiases',
-        })
+async function getSiteInfo () {
+    const resp = await api ({
+        action: 'query',
+        meta: 'siteinfo',
+        siprop: 'general|namespaces|namespacealiases',
+    })
 
-        const info = resp.query
-        log( 'SiteInfo', info )
-        wiki.info = info
-        wiki.indexUrl = info.general.script
-        wiki.mainPage = info.general.mainpage
-        wiki.articlePath = info.general.articlepath.split('$')[0]
-        wiki.articleBase = info.general.base.split( wiki.articlePath )[0] + wiki.articlePath
-        wiki.baseParsed = urlconv.parse( wiki.articleBase )
-        wiki.nameSpaces = new NameSpaceSet( info )
-    }) ()
+    const info = resp.query
+    log( 'SiteInfo', info )
+    wiki.info = info
+    wiki.indexUrl = info.general.script
+    wiki.mainPage = info.general.mainpage
+    wiki.articlePath = info.general.articlepath.split('$')[0]
+    wiki.articleBase = info.general.base.split( wiki.articlePath )[0] + wiki.articlePath
+    wiki.baseParsed = urlconv.parse( wiki.articleBase )
+    wiki.nameSpaces = new NameSpaceSet( info )
 }
 
-function saveMetadata () {
+async function saveMetadata () {
 
     // Name         yes     A human readable identifier for the resource. It's the same across versions (should be stable across time). MUST be prefixed by the packager name.  kiwix.wikipedia_en.nopics
     // Title        yes     title of zim file   English Wikipedia
@@ -929,25 +923,21 @@ function saveMetadata () {
         Source: urlconv.resolve( wiki.articleBase, wiki.info.general.server ),
     }
 
-    return Promise.coroutine( function * () {
-        yield new MainPage().process()
-        yield new FavIcon().process()
+    await new MainPage().process()
+    await new FavIcon().process()
 
-        for ( let i in metadata ) {
-            yield new Metadata( i, metadata[i] ).process()
-        }
-    }) ()
+    for ( let i in metadata ) {
+        await new Metadata( i, metadata[i] ).process()
+    }
 }
 
-function saveMimeTypes () {
-    return Promise.coroutine( function * () {
-        for ( let i=0, li=mimeIds.length; i < li; i++ ) {
-            yield indexerDb.run(
-                'INSERT INTO mimeTypes (id, value) VALUES (?,?)',
-                [ i + 1, mimeIds[ i ]]
-            )
-        }
-    }) ()
+async function saveMimeTypes () {
+    for ( let i=0, li=mimeIds.length; i < li; i++ ) {
+        await indexerDb.run(
+            'INSERT INTO mimeTypes (id, value) VALUES (?,?)',
+            [ i + 1, mimeIds[ i ]]
+        )
+    }
 }
 
 function batchRedirects ( pageInfos ) {
@@ -998,107 +988,103 @@ function batchRedirects ( pageInfos ) {
     })
 }
 
-function batchPages ( nameSpace ) {
+async function batchPages ( nameSpace ) {
     const queryPageLimit = 500
     const queryMaxTitles = 50
 
-    return Promise.coroutine( function* () {
-        const exclude = command.exclude ?
-            new RegExp( command.exclude ) :
-            { test: () => false }
-        const query = {
-            action: 'query',
-            prop: 'info',
-            inprop: 'url',
+    const exclude = command.exclude ?
+        new RegExp( command.exclude ) :
+        { test: () => false }
+    const query = {
+        action: 'query',
+        prop: 'info',
+        inprop: 'url',
+    }
+    Object.assign(
+        query,
+        nameSpace == null ?
+        {   titles: command.titles } :
+        {
+            generator: 'allpages',
+            gapnamespace: nameSpace,
+            gaplimit: queryPageLimit,
+            rawcontinue: '',
         }
-        Object.assign(
-            query,
-            nameSpace == null ?
-            {   titles: command.titles } :
-            {
-                generator: 'allpages',
-                gapnamespace: nameSpace,
-                gaplimit: queryPageLimit,
-                rawcontinue: '',
-            }
+    )
+
+    let continueFrom = ''
+    while ( true ) {
+        await indexerDb.run(
+            'INSERT OR REPLACE INTO continue (id, "from") VALUES (1, ?)',
+            [ continueFrom ]
         )
+        if ( continueFrom == null )
+            break
 
-        let continueFrom = ''
-        while ( true ) {
-            yield indexerDb.run(
-                'INSERT OR REPLACE INTO continue (id, "from") VALUES (1, ?)',
-                [ continueFrom ]
-            )
-            if ( continueFrom == null )
-                break
+        await indexerDb.run( 'BEGIN' )
 
-            yield indexerDb.run( 'BEGIN' )
-
-            const resp = yield api( query )
-            let pages = {}
-            try {
-                pages = resp.query.pages
-                //~ log( '*pages', pages )
-            }
-            catch (e) {
-                log( 'getPages', 'NO PAGES' )
-            }
-            let redirects = []
-            const done = Object.keys( pages ).map( key => {
-                if ( parseInt( key ) < 0 ) { // no such page
-                    return null
-                }
-                const pageInfo = pages[ key ]
-                if ( pageInfo.redirect != null ) {
-                    log( '>' , pageInfo.title )
-                    redirects.push( pageInfo )
-                    if ( redirects.length == queryMaxTitles ) {
-                        const res = batchRedirects( redirects )
-                        redirects = []
-                        return res
-                    }
-                    return null
-                }
-                if ( ! command.pages || exclude.test( pageInfo.title )) {
-                    log( 'x', pageInfo.title )
-                    return null
-                }
-                log( '#', pageInfo.title )
-                return new Article( pageInfo ).process()
-            })
-            done.push( batchRedirects( redirects ))
-            yield Promise.all( done )
-
-            yield indexerDb.run( 'COMMIT' )
-
-            continueFrom = null
-            try {
-                const continueKey = Object.keys( resp[ 'query-continue' ].allpages )[ 0 ]
-                continueFrom = resp[ 'query-continue' ].allpages[ continueKey ]
-                query[ continueKey ] = continueFrom
-                log( '...', continueFrom )
-            }
-            catch ( e ) {
-                log( 'getPages', 'No continue key' )
-            }
+        const resp = await api( query )
+        let pages = {}
+        try {
+            pages = resp.query.pages
+            //~ log( '*pages', pages )
         }
-    })()
+        catch (e) {
+            log( 'getPages', 'NO PAGES' )
+        }
+        let redirects = []
+        const done = Object.keys( pages ).map( key => {
+            if ( parseInt( key ) < 0 ) { // no such page
+                return null
+            }
+            const pageInfo = pages[ key ]
+            if ( pageInfo.redirect != null ) {
+                log( '>' , pageInfo.title )
+                redirects.push( pageInfo )
+                if ( redirects.length == queryMaxTitles ) {
+                    const res = batchRedirects( redirects )
+                    redirects = []
+                    return res
+                }
+                return null
+            }
+            if ( ! command.pages || exclude.test( pageInfo.title )) {
+                log( 'x', pageInfo.title )
+                return null
+            }
+            log( '#', pageInfo.title )
+            return new Article( pageInfo ).process()
+        })
+        done.push( batchRedirects( redirects ))
+        await Promise.all( done )
+
+        await indexerDb.run( 'COMMIT' )
+
+        continueFrom = null
+        try {
+            const continueKey = Object.keys( resp[ 'query-continue' ].allpages )[ 0 ]
+            continueFrom = resp[ 'query-continue' ].allpages[ continueKey ]
+            query[ continueKey ] = continueFrom
+            log( '...', continueFrom )
+        }
+        catch ( e ) {
+            log( 'getPages', 'No continue key' )
+        }
+    }
 }
 
-function getPages () {
-    return Promise.coroutine( function* () {
-        if ( command.titles ) {
-            log( 'Titles', command.titles )
-            yield batchPages()
-        } else {
-            wiki.nameSpaces.init( command.nameSpaces )
-            for ( let nameSpace of wiki.nameSpaces ) {
-                log( 'Name Space', nameSpace )
-                yield batchPages( nameSpace )
-            }
+async function getPages () {
+    if ( command.titles ) {
+        log( 'Titles', command.titles )
+        await batchPages()
+    } else {
+        wiki.nameSpaces.init( command.nameSpaces )
+        for ( let nameSpace of wiki.nameSpaces ) {
+            log( 'Name Space', nameSpace )
+            await batchPages( nameSpace )
         }
-        log( '**************** done' )
-    })()
+    }
+    log( '**************** done' )
 }
 
 function loadCss( dom ) {
