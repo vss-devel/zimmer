@@ -529,7 +529,14 @@ class Article extends ArticleStub {
             log( 'cheerio.load error', e, data, reply )
             return data
         }
-        const content = src( '#bodyContent' )
+        let content = src( '#bodyContent' )
+        if ( content.length == 0 ) {
+            content = src( 'article' )
+        }
+        if ( content.length == 0 ) {
+            fatal( "Article.preProcess -- fatal error: Can't find article's content:", this.title )
+        }
+
         const dom = cheerio.load( wiki.pageTemplate )
         dom( 'title' ).text( this.title )
 
@@ -538,6 +545,12 @@ class Article extends ArticleStub {
         // modify links
         let css = dom( '#layout-css' )
         css.attr( 'href', this.basePath + css.attr( 'href' ))
+
+        // display content inside <noscript> tags
+        dom( 'noscript' ).each( (i, elem) => {
+            let e = cheerio( elem )
+            e.replaceWith( e.contents() )
+        })
 
         dom( 'a' ).toArray().map( elem => {
             this.transformGeoLink( elem )
@@ -848,9 +861,17 @@ async function processSamplePage ( samplePageUrl,  rmdir) {
     await fs.mkdirs( wiki.saveDir )
 
     const dom = cheerio.load( resp.body )
-    const historyLink = dom('#ca-history a').attr('href')
-    //~log(resp.request.href, historyLink, urlconv.resolve(resp.request.href, historyLink))
-    const parsedUrl = urlconv.parse(urlconv.resolve(resp.request.href, historyLink))
+
+    // find out API entry URL
+    let phpUrl = dom('link[rel="EditURI"]').attr('href')
+    if ( ! phpUrl ) {
+        phpUrl = dom('#ca-history a').attr('href')
+    }
+    if ( ! phpUrl ) {
+        fatal( "processSamplePage -- fatal error: API entry URL" )
+    }
+    //~log(resp.request.href, phpUrl, urlconv.resolve(resp.request.href, phpUrl))
+    const parsedUrl = urlconv.parse(urlconv.resolve(resp.request.href, phpUrl))
     log(parsedUrl)
     parsedUrl.search = null
     parsedUrl.hash = null
