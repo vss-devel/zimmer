@@ -542,25 +542,6 @@ class Article extends ArticleStub {
 
         dom( '#bodyContent' ).replaceWith( content )
 
-        // modify links
-        let css = dom( '#layout-css' )
-        css.attr( 'href', this.basePath + css.attr( 'href' ))
-
-        // display content inside <noscript> tags
-        dom( 'noscript' ).each( (i, elem) => {
-            let e = cheerio( elem )
-            e.replaceWith( e.contents() )
-        })
-
-        dom( 'a' ).toArray().map( elem => {
-            this.transformGeoLink( elem )
-            this.transformLink( elem )
-        })
-        // map area links
-        dom( 'area' ).toArray().map( elem => {
-            this.transformLink( elem )
-        })
-
         // remove comments
         dom( '*' ).contents().each( (i, elem) => {
             //~ log( 'comment', elem.type )
@@ -569,9 +550,26 @@ class Article extends ArticleStub {
             }
         })
 
-        return Promise.all( dom( 'img' ).toArray().map(
-            elem => this.saveImage( elem )
-        ))
+        // display content inside <noscript> tags
+        dom( 'noscript' ).each( (i, elem) => {
+            let e = dom( elem )
+            e.replaceWith( e.contents() )
+        })
+
+        // modify links
+        let css = dom( '#layout-css' )
+        css.attr( 'href', this.basePath + css.attr( 'href' ))
+
+        dom( 'a' ).each( (i, elem) => {
+            this.transformGeoLink( elem )
+            this.transformLink( elem )
+        })
+        // map area links
+        dom( 'area' ).each( (i, elem) => {
+            this.transformLink( elem )
+        })
+
+        return Promise.all( dom( 'img' ).toArray().map( elem => this.saveImage( elem )))
         .then ( () => {
             this.mimeType = 'text/html'
             this.encoding = 'utf-8'
