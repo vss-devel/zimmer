@@ -334,12 +334,11 @@ class WikiItem {
         Object.assign( this, { zimNameSpace, url, title })
     }
 
-    data () {
-        return ( this.data_ !== undefined ? Promise.resolve( this.data_ ) : ( this.data_ = this.load( )))
-        .then( data => ! Buffer.isBuffer( data ) || this.encoding == null
-            ? data
-            : iconv.decode( data, this.encoding )
-            )
+    async getData () {
+        let data = await ( this.data !== undefined ? Promise.resolve( this.data ) : ( this.data = this.load( )))
+        if ( Buffer.isBuffer( data ) && this.encoding != null )
+            data = iconv.decode( data, this.encoding )
+        return data
     }
 
     urlReplacements () {
@@ -412,6 +411,10 @@ class WikiItem {
         return  '/' + this.zimNameSpace + '/' + this.baseName()
     }
 
+    rootPath () {
+        return '../'.repeat( this.baseName().split( '/' ).length - 1 )
+    }
+
     urlKey () {
         return this.zimNameSpace + this.baseName()
     }
@@ -463,7 +466,7 @@ class WikiItem {
 
     process () {
         return Promise.resolve()
-        .then( () => this.data())
+        .then( () => this.getData())
         .then( data => this.store( data ))
         .then( () => this.storeMetadata() )
         .then( () => this.localPath() )
@@ -513,7 +516,6 @@ class ArticleStub extends WikiItem {
 class Article extends ArticleStub {
     constructor ( pageInfo ) {
         super( pageInfo )
-        this.basePath = '../'.repeat( this.baseName().split( '/' ).length - 1 )
     }
 
     load () {
@@ -521,7 +523,7 @@ class Article extends ArticleStub {
         .then( body => this.preProcess( body ))
     }
 
-    preProcess( data, reply ) {
+    async preProcess( data, reply ) {
         let src
         try {
             src = cheerio.load( data )
@@ -529,56 +531,61 @@ class Article extends ArticleStub {
             log( 'cheerio.load error', e, data, reply )
             return data
         }
-        let content = src( '#bodyContent' )
-        if ( content.length == 0 ) {
-            content = src( 'article' )
-        }
-        if ( content.length == 0 ) {
-            fatal( "Article.preProcess -- fatal error: Can't find article's content:", this.title )
-        }
-
-        const dom = cheerio.load( wiki.pageTemplate )
-        dom( 'title' ).text( this.title )
-
-        dom( '#bodyContent' ).replaceWith( content )
-
-        // remove comments
-        dom( '*' ).contents().each( (i, elem) => {
-            //~ log( 'comment', elem.type )
-            if ( elem.type === 'comment' ) {
-                dom( elem ).remove()
+        try {
+            let content = src( '#bodyContent' )
+            if ( content.length == 0 ) {
+                content = src( 'article' )
             }
-        })
+            if ( content.length == 0 ) {
+                fatal( "Article.preProcess -- fatal error: Can't find article's content:", this.title )
+            }
 
-        // display content inside <noscript> tags
-        dom( 'noscript' ).each( (i, elem) => {
-            let e = dom( elem )
-            e.replaceWith( e.contents() )
-        })
+            const dom = cheerio.load( wiki.pageTemplate )
+            dom( 'title' ).text( this.title )
 
-        // modify links
-        let css = dom( '#layout-css' )
-        css.attr( 'href', this.basePath + css.attr( 'href' ))
+            dom( '#bodyContent' ).replaceWith( content )
 
-        dom( 'a' ).each( (i, elem) => {
-            this.transformGeoLink( elem )
-            this.transformLink( elem )
-        })
-        // map area links
-        dom( 'area' ).each( (i, elem) => {
-            this.transformLink( elem )
-        })
+            // remove comments
+            dom( '*' ).contents().each( (i, elem) => {
+                //~ log( 'comment', elem.type )
+                if ( elem.type === 'comment' ) {
+                    dom( elem ).remove()
+                }
+            })
 
-        return Promise.all( dom( 'img' ).toArray().map( elem => this.saveImage( elem )))
-        .then ( () => {
+            // display content inside <noscript> tags
+            dom( 'noscript' ).each( (i, elem) => {
+                let e = dom( elem )
+                e.replaceWith( e.contents() )
+            })
+
+            // modify links
+            let css = dom( '#layout-css' )
+            css.attr( 'href', this.rootPath() + css.attr( 'href' ))
+
+            dom( 'a' ).each( (i, elem) => {
+                this.transformGeoLink( elem )
+                this.transformLink( elem )
+            })
+            // map area links
+            dom( 'area' ).each( (i, elem) => {
+                this.transformLink( elem )
+            })
+
+            let done = dom( 'img' ).toArray().map( elem => this.transformImg( elem ))
+            done = done.concat( dom( '[style*="url("]' ).toArray().map( elem => this.transformStyle( elem )))
+
+            await Promise.all( done )
+
             this.mimeType = 'text/html'
             this.encoding = 'utf-8'
             const out = dom.html()
             return out
-        })
-        .catch( err => {
+
+        } catch ( err ) {
             log( err )
-        })
+            return null
+        }
     }
 
     transformLink( elem ) {
@@ -601,7 +608,7 @@ class Article extends ArticleStub {
             if ( path.includes( ':' )) {
                 delete elem.attribs.href // block other name spaces
             } else {
-                elem.attribs.href = this.basePath + baseName
+                elem.attribs.href = this.rootPath() + baseName
             }
         }
         const pathlc = path.toLowerCase()
@@ -621,16 +628,23 @@ class Article extends ArticleStub {
         elem.attribs.href = `geo:${lat},${lon}`
     }
 
-    saveImage ( elem ) {
+    async transformStyle ( elem ) {
+        let style = new Style( this.url, elem.attribs.style )
+        return elem.attribs.style = await style.getData()
+    }
+
+    async transformImg ( elem ) {
         delete elem.attribs.srcset
         let url = elem.attribs.src
         if (! url || url.startsWith( 'data:' ))
             return url
+        return elem.attribs.src = await this.saveImage( url )
+    }
+
+    async saveImage ( url ) {
         const image = new Image( url )
-        return image.process()
-        .then( localPath => {
-            elem.attribs.src = encodeURI( this.basePath + '..' + localPath )
-        })
+        const localPath = await image.process()
+        return encodeURI( this.rootPath() + '..' + localPath )
     }
 }
 
@@ -700,10 +714,10 @@ class Metadata extends WikiItem {
     constructor ( url, data ) {
         super( 'M', url)
         this.mimeType = 'text/plain'
-        this.data_ = data
+        this.data = data
     }
-    data () {
-        return this.data_
+    getData () {
+        return this.data
     }
 }
 
@@ -748,7 +762,7 @@ class Image extends PageComponent {
     data () {
         if (! command.images )
             return null
-        return super.data()
+        return super.getData()
     }
 */
     process () {
@@ -760,7 +774,7 @@ class Image extends PageComponent {
 
 //~ const layoutFileNames = new Set()
 
-class StyleItem extends PageComponent {
+class LayoutItem extends PageComponent {
     constructor ( url ) {
         super( '-', url )
     }
@@ -777,7 +791,7 @@ class StyleItem extends PageComponent {
 */
 }
 
-class FavIcon extends StyleItem {
+class FavIcon extends LayoutItem {
     constructor ( ) {
         super( wiki.info.general.logo || 'http://www.openzim.org/w/images/e/e8/OpenZIM-wiki.png' )
     }
@@ -786,55 +800,79 @@ class FavIcon extends StyleItem {
     }
 }
 
+class Style extends LayoutItem {
+    constructor ( url, data ) {
+        super( url )
+        this.mimeType = 'text/css'
+        this.data = data
+    }
+
+    async getData () {
+        try {
+            const src = await super.getData()
+            return await this.transformStyle( src )
+        } catch ( err ) {
+            log( 'Style.getData error', this.url, err )
+            return ''
+        }
+    }
+
+    async transformStyle ( src ) {
+        // collect urls using dummy replacements
+        const urlre = /(url\(['"]?)([^\)]*[^\)'"])(['"]?\))/g
+        const requests = []
+        src.replace( urlre, ( match, start, url, end ) => {
+            if ( ! url.startsWith( 'data:' )) {
+                const styleItem = new LayoutItem( urlconv.resolve( this.url, url ))
+                requests.push( styleItem.process() )
+            }
+            return match
+        })
+        const resolvedUrls = await Promise.all( requests )
+        const transformed = src.replace( urlre, ( match, start, url, end ) => {
+            let out = match
+            const rurl = resolvedUrls.shift()
+            if ( rurl != null ) {
+                let newUrl = this.rootPath() + '..' + rurl
+                out = start + newUrl + end
+            }
+            return out
+        })
+        return transformed
+    }
+}
+
 const cssDependencies = new Set()
 
-class GlobalCss extends StyleItem {
+class GlobalCss extends LayoutItem {
     constructor ( sourceDOM ) {
         super( 'zim.css' )
         this.sourceDOM = sourceDOM
         this.mimeType = 'text/css'
     }
 
-    load () {
+    async load () {
         // get css stylesheets
         const cssLinks = this.sourceDOM( 'link[rel=stylesheet][media!=print]' ).toArray()
-        const requests = cssLinks.map( elem => this.transformCss( elem.attribs.href ))
+        const requests = cssLinks.map( elem => this.getCss( elem.attribs.href ))
 
         const stub = osPath.resolve( module.filename, '../stub.css' )
         requests.unshift( fs.readFile( stub ))
 
-        return Promise.all( requests )
-        .then( chunks => chunks.join( '\n' ))
+        const chunks = await Promise.all( requests )
+        return chunks.join( '\n' )
     }
 
-    async transformCss( cssUrl ) {
-        let css = new StyleItem( cssUrl )
-        const src = await css.data()
-
-        // collect urls using dummy replacements
-        const urlre = /(url\(['"]?)([^\)]*[^\)'"])(['"]?\))/g
-        const requests = []
-        src.replace( urlre, ( match, start, url, end ) => {
-            if ( ! url.startsWith( 'data:' )) {
-                const cssItem = new StyleItem( urlconv.resolve( cssUrl, url ))
-                requests.push( cssItem.process() )
-            }
-            return match
-        })
-        const resolvedUrls = await Promise.all( requests )
-        const transformed = src.replace( urlre, ( match, start, url, end ) => {
-            const rurl = resolvedUrls.shift()
-            if ( rurl == null )
-                return match
-            return start + rurl.slice( 3 ) + end
-        })
+    async getCss( cssUrl ) {
+        let css = new Style( cssUrl )
+        const src = await css.getData()
 
         const outcss = `/*
 *
 * from ${cssUrl}
 *
 */
-${transformed}
+${src}
 `
         return outcss
     }
