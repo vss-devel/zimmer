@@ -356,8 +356,8 @@ class WikiItem {
         return http({
                 url: this.urlReplacements(),
                 encoding: null,
-            },
-            this.loadPriority
+                priority: this.loadPriority
+            }
         )
         .catch( error => {
             if ( ! command.downloadErrors || error.options.external || error.statusCode == 404 ) {
