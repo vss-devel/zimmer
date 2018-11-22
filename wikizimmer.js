@@ -401,22 +401,22 @@ class WikiItem {
         })
     }
 
-    baseName () {
+    basePath () {
         const urlp = urlconv.parse( this.url )
         const pathp = osPath.parse( urlp.pathname )
         return sanitizeFN( decodeURIComponent( pathp.base ))
     }
 
     localPath () {
-        return  '/' + this.zimNameSpace + '/' + this.baseName()
+        return  this.zimNameSpace + '/' + this.basePath()
     }
 
-    rootPath () {
-        return '../'.repeat( this.baseName().split( '/' ).length - 1 )
+    pathToTop () {
+        return '../'.repeat( this.basePath().split( '/' ).length - 1 )
     }
 
     urlKey () {
-        return this.zimNameSpace + this.baseName()
+        return this.zimNameSpace + this.basePath()
     }
 
     titleKey () {
@@ -438,7 +438,7 @@ class WikiItem {
         if ( data == null )
             return Promise.reject( new Error( 'data == null' ))
 
-        const savePath = wiki.saveDir + this.localPath()
+        const savePath = osPath.join( wiki.saveDir, this.localPath())
         log( '+', savePath )
 
         return fs.outputFile( savePath, data )
@@ -497,14 +497,14 @@ class WikiItem {
 // }
 class ArticleStub extends WikiItem {
     constructor ( pageInfo ) {
-        super( 'A', urlconv.resolve( wiki.articleBase, pageInfo.fullurl ), pageInfo.title )
+        super( 'A', urlconv.resolve( wiki.articleUriPrefix, pageInfo.fullurl ), pageInfo.title )
         this.info = pageInfo
         this.mwId = pageInfo.pageid
         this.revision = pageInfo.lastrevid
     }
 
-    baseName () {
-        if ( this.url && this.url.startsWith( wiki.articleBase )) {
+    basePath () {
+        if ( this.url && this.url.startsWith( wiki.articleUriPrefix )) {
             const urlParsed = urlconv.parse( this.url )
             const subPath =  urlParsed.pathname.replace( wiki.articlePath, '' )
             return sanitizeFN( decodeURIComponent( subPath )) + '.html'
@@ -561,7 +561,7 @@ class Article extends ArticleStub {
 
             // modify links
             let css = dom( '#layout-css' )
-            css.attr( 'href', this.rootPath() + css.attr( 'href' ))
+            css.attr( 'href', this.pathToTop() + css.attr( 'href' ))
 
             dom( 'a' ).each( (i, elem) => {
                 this.transformGeoLink( elem )
@@ -603,12 +603,12 @@ class Article extends ArticleStub {
         if ( ! path || path == '/' )
             return
 
-        const baseName = link.baseName()
-        if ( baseName != null ) { // local article link
+        const basePath = link.basePath()
+        if ( basePath != null ) { // local article link
             if ( path.includes( ':' )) {
                 delete elem.attribs.href // block other name spaces
             } else {
-                elem.attribs.href = this.rootPath() + baseName
+                elem.attribs.href = this.pathToTop() + basePath
             }
         }
         const pathlc = path.toLowerCase()
@@ -644,7 +644,7 @@ class Article extends ArticleStub {
     async saveImage ( url ) {
         const image = new Image( url )
         const localPath = await image.process()
-        return encodeURI( this.rootPath() + '..' + localPath )
+        return encodeURI( this.pathToTop() + '../' + localPath )
     }
 }
 
@@ -692,7 +692,7 @@ class MainPage extends Redirect {
     constructor ( ) {
         super({ fullurl: 'mainpage' })
     }
-    baseName () {
+    basePath () {
         return 'mainpage'
     }
     storeMetadata ( ) {
@@ -725,7 +725,7 @@ class Metadata extends WikiItem {
 const urlCache = new lru({ maxSize:500 })
 
 class PageComponent extends WikiItem {
-    baseName () {
+    basePath () {
         let name
         const urlp = urlconv.parse( this.url )
         if ( urlp.query && urlp.query.includes( '=' ) && this.mimeType ) {
@@ -745,7 +745,7 @@ class PageComponent extends WikiItem {
             saved = super.process()
             urlCache.set( this.url, saved )
 
-            saved.then( localPath => { // do keep item's data in the cache
+            saved.then( localPath => { // keep item's data in the cache
                 urlCache.set( this.url, Promise.resolve( localPath ))
             })
         }
@@ -795,7 +795,7 @@ class FavIcon extends LayoutItem {
     constructor ( ) {
         super( wiki.info.general.logo || 'http://www.openzim.org/w/images/e/e8/OpenZIM-wiki.png' )
     }
-    baseName () {
+    basePath () {
         return 'favicon'
     }
 }
@@ -833,7 +833,7 @@ class Style extends LayoutItem {
             let out = match
             const rurl = resolvedUrls.shift()
             if ( rurl != null ) {
-                let newUrl = this.rootPath() + '..' + rurl
+                let newUrl = this.pathToTop() + '..' + rurl
                 out = start + newUrl + end
             }
             return out
@@ -939,8 +939,9 @@ async function getSiteInfo () {
     wiki.indexUrl = info.general.script
     wiki.mainPage = info.general.mainpage
     wiki.articlePath = info.general.articlepath.split('$')[0]
-    wiki.articleBase = info.general.base.split( wiki.articlePath )[0] + wiki.articlePath
-    wiki.baseParsed = urlconv.parse( wiki.articleBase )
+    wiki.articleUriPrefix = info.general.base.split( wiki.articlePath )[0] + wiki.articlePath
+    wiki.baseParsed = urlconv.parse( wiki.articleUriPrefix )
+    wiki.uri = urlconv.resolve( wiki.articleUriPrefix, wiki.info.general.server )
     wiki.nameSpaces = new NameSpaceSet( info )
 }
 
@@ -977,7 +978,7 @@ async function saveMetadata () {
         //~ Tags: '',
         //~ Relation: '',
         //~ Counter: '',
-        Source: urlconv.resolve( wiki.articleBase, wiki.info.general.server ),
+        Source: wiki.uri,
     }
 
     await new MainPage().process()
