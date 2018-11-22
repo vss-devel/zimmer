@@ -360,7 +360,7 @@ class WikiItem {
             }
         )
         .catch( error => {
-            if ( ! command.downloadErrors || error.options.external || error.statusCode == 404 ) {
+            if ( ! command.downloadErrors || error.options.external || error.statusCode == 404 || error.statusCode == 400 ) {
                 return Promise.reject( error )
             }
             fatal( 'Fatal load error' )
