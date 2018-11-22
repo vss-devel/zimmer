@@ -402,8 +402,8 @@ class WikiItem {
     }
 
     basePath () {
-        const urlp = urlconv.parse( this.url )
-        const pathp = osPath.parse( urlp.pathname )
+        const purl = urlconv.parse( this.url )
+        const pathp = osPath.parse( purl.pathname )
         return sanitizeFN( decodeURIComponent( pathp.base ))
     }
 
@@ -727,13 +727,13 @@ const urlCache = new lru({ maxSize:500 })
 class PageComponent extends WikiItem {
     basePath () {
         let name
-        const urlp = urlconv.parse( this.url )
-        if ( urlp.query && urlp.query.includes( '=' ) && this.mimeType ) {
-            const pathp = osPath.parse( urlp.path )
+        const purl = urlconv.parse( this.url )
+        if ( purl.query && purl.query.includes( '=' ) && this.mimeType ) {
+            const pathp = osPath.parse( purl.path )
             const ext = '.' + mimeTypes.extension( this.mimeType )
             name = pathp.base + ext
         } else {
-            const pathp = osPath.parse( urlp.pathname )
+            const pathp = osPath.parse( purl.pathname )
             name = pathp.name + pathp.ext.toLowerCase()
         }
         return sanitizeFN( decodeURIComponent( name ))
@@ -890,8 +890,8 @@ async function processSamplePage ( samplePageUrl,  rmdir) {
     http = pooledRequest( requestPromise, realUrl )
 
     // create download directory
-    const urlp = urlconv.parse( realUrl )
-    wiki.saveDir = sanitizeFN( urlp.hostname )
+    const purl = urlconv.parse( realUrl )
+    wiki.saveDir = sanitizeFN( purl.hostname )
     if ( rmdir )
         await fs.remove( wiki.saveDir )
     await fs.mkdirs( wiki.saveDir )
