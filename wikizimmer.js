@@ -770,6 +770,26 @@ class Image extends PageComponent {
             return Promise.resolve( this.localPath() )
         return super.process()
     }
+    basePath () {
+        if ( ! this.url )
+            return null
+
+        const purl = urlconv.parse( this.url )
+        let path
+        if ( purl.hostname == wiki.baseParsed.hostname || purl.hostname == 'upload.wikimedia.org' ) {
+            path =  super.basePath()
+        } else {
+            const turl = urlconv.parse( '' )
+            turl.hostname = purl.hostname
+            turl.pathname = purl.pathname
+            const tpath = turl.format()
+            path = sanitizeFN( decodeURIComponent( tpath ))
+        }
+        if ( osPath.extname( path ) == '' ) {
+            path = path + '.' + mimeTypes.extension( this.mimeType )
+        }
+        return path
+    }
 }
 
 //~ const layoutFileNames = new Set()
