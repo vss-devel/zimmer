@@ -572,7 +572,7 @@ class Article extends ArticleStub {
             css.attr( 'href', this.pathToTop() + css.attr( 'href' ))
 
             dom( 'a' ).each( (i, elem) => {
-                this.transformGeoLink( elem )
+                this.transformGeoLink( elem ) ||
                 this.transformLink( elem )
             })
             // map area links
@@ -580,7 +580,7 @@ class Article extends ArticleStub {
                 this.transformLink( elem )
             })
 
-            let done = dom( 'img' ).toArray().map( elem => this.transformImg( elem ))
+            let done = dom( 'img' ).toArray().map( elem => this.saveImage( elem ))
             done = done.concat( dom( '[style*="url("]' ).toArray().map( elem => this.transformStyle( elem )))
 
             await Promise.all( done )
@@ -608,10 +608,6 @@ class Article extends ArticleStub {
         if (! url || url.startsWith( '#' ))
             return
 
-        if ( url.includes( 'action=edit' )) {
-            delete elem.attribs.href
-            return
-        }
         const link = new ArticleStub({ fullurl: url })
 
         const path = urlconv.parse( link.url ).pathname
@@ -638,9 +634,10 @@ class Article extends ArticleStub {
         const lat = elem.attribs[ "data-lat" ]
         const lon = elem.attribs[ "data-lon" ]
         if ( lat == null || lon == null )
-            return
+            return false
 
         elem.attribs.href = `geo:${lat},${lon}`
+        return true
     }
 
     async transformStyle ( elem ) {
