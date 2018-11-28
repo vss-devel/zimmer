@@ -660,39 +660,32 @@ class Redirect extends ArticleStub {
 
     constructor ( info ) {
         super( info )
+        this.data = null
         this.to = info.to
         this.toFragment = info.toFragment
-    }
-
-    data() {
-        return null
     }
 
     mimeId () {
         return 0xffff
     }
 
-    store () {
-        return null
-    }
+    async storeMetadata ( ) {
+        const id = await super.storeMetadata()
+        if ( ! id )
+            return
+        const target = new ArticleStub( this.to )
+        const row = [
+            id,
+            target.urlKey(),
+            this.toFragment,
+        ]
 
-    storeMetadata ( ) {
-        return super.storeMetadata()
-        .then( () => {
-            const target = new ArticleStub( this.to )
-            const row = [
-                this.id,
-                target.urlKey(),
-                this.toFragment,
-            ]
+        log( '>', this.title || this.url, row)
 
-            log( '>', this.title || this.url, row)
-
-            wiki.db.run(
-                'INSERT INTO redirects (id, targetKey, fragment) VALUES (?,?,?)',
-                row
-            )
-        })
+        return wiki.db.run(
+            'INSERT INTO redirects (id, targetKey, fragment) VALUES (?,?,?)',
+            row
+        )
     }
 }
 
