@@ -361,53 +361,56 @@ class WikiItem {
         return command.urlBlacklist.some( patt => this.url.includes( patt ))
     }
 
-    load () {
-        return http({
+    async load () {
+        let resp
+        try {
+            resp = await http({
                 url: this.urlReplacements(),
                 encoding: null,
                 priority: this.loadPriority
-            }
-        )
-        .catch( error => {
+            })
+        } catch ( error ) {
             if ( ! command.downloadErrors || error.options.external || error.statusCode == 404 || error.statusCode == 400 ) {
-                return Promise.reject( error )
+                throw error
             }
             fatal( 'Fatal load error' )
-            return Promise.reject( new Error( 'Load error' ))
-        })
-        .then( resp => {
-            const data = resp.body
+            //~ return Promise.reject( new Error( 'Load error' ))
+        }
+        let data = resp.body
 
-            this.url = resp.request.href // possibly redirected
-            this.headers = resp.headers
-            if ( ! this.revision ) {
-                const modified = this.headers[ 'last-modified' ] // "Tue, 27 Jun 2017 14:37:49 GMT"
-                const dateBasedRevision = Math.round(( Date.parse( modified ) - Date.parse( '2000-01-01' )) / 1000 )
-                this.revision = dateBasedRevision
+        this.url = resp.request.href // possibly redirected
+        this.headers = resp.headers
+        if ( ! this.revision ) {
+            const modified = this.headers[ 'last-modified' ] // "Tue, 27 Jun 2017 14:37:49 GMT"
+            const dateBasedRevision = Math.round(( Date.parse( modified ) - Date.parse( '2000-01-01' )) / 1000 ) || 0
+            this.revision = dateBasedRevision
+        }
+
+        const contentType = resp.headers[ "content-type" ]
+        let csplit = contentType.split( ';' )
+        this.mimeType = csplit[ 0 ]
+
+        if ( this.mimeType.split( '/' )[ 0 ] == 'text' ) {
+            this.encoding = 'utf-8'
+            if ( csplit.length > 1 && csplit[ 1 ].includes( 'charset=' )) {
+                this.encoding = csplit[ 1 ].split( '=' )[ 1 ]
             }
+        }
 
-            const contentType = resp.headers[ "content-type" ]
-            let csplit = contentType.split( ';' )
-            this.mimeType = csplit[ 0 ]
+        if ( this.mimeType == 'application/x-www-form-urlencoded' ) {
+            return mimeFromData( data )
+            .then( mimeType => {
+                this.mimeType = mimeType
+                return data
+            })
+            .catch( err => data )
+        }
 
-            if ( this.mimeType.split( '/' )[ 0 ] == 'text' ) {
-                this.encoding = 'utf-8'
-                if ( csplit.length > 1 && csplit[ 1 ].includes( 'charset=' )) {
-                    this.encoding = csplit[ 1 ].split( '=' )[ 1 ]
-                }
-            }
+        if ( Buffer.isBuffer( data ) && this.encoding != null ) {
+            data = iconv.decode( data, this.encoding )
+        }
 
-            if ( this.mimeType == 'application/x-www-form-urlencoded' ) {
-                return mimeFromData( data )
-                .then( mimeType => {
-                    this.mimeType = mimeType
-                    return data
-                })
-                .catch( err => data )
-            }
-
-            return data
-        })
+        return data
     }
 
     basePath () {
@@ -477,18 +480,18 @@ class WikiItem {
 
     }
 
-    save () {
+    async save () {
         if ( this.blackListed() )
             return ''
-    return Promise.resolve()
-        .then( () => this.getData())
-        .then( data => this.storeData( data ))
-        .then( () => this.storeMetadata() )
-        .then( () => this.localPath() )
-        .catch( err => {
+        try {
+            const data = await this.getData()
+            await this.storeData( data )
+            await this.storeMetadata()
+            return this.localPath()
+        } catch ( err ) {
             warning( 'Save error', err.name, this.url, '->', this.localPath())
             return ''
-        })
+        }
     }
 }
 
@@ -1177,15 +1180,15 @@ function loadCss( dom ) {
     return css.save()
 }
 
-function initMetadataStorage ( samplePageDOM ) {
+async function initWikiDb () {
 
     let dbName = osPath.join( wiki.saveDir, 'metadata.db' )
 
-    return fs.unlink( dbName )
-    .catch( () => null )
-    .then( () => sqlite.open( dbName ))
-    .then( db => {
-        wiki.db = db
+    try {
+        await fs.unlink( dbName )
+    } catch (err) {
+    }
+    wiki.db = await sqlite.open( dbName )
     return wiki.db.exec(
         'PRAGMA synchronous = OFF;' +
         //~ 'PRAGMA journal_mode = OFF;' +
@@ -1224,22 +1227,22 @@ function closeMetadataStorage () {
     return wiki.db.close()
 }
 
-function core ( samplePage ) {
+async function core ( samplePage ) {
     if ( command.userAgent ) {
         UserAgent = command.userAgent == 'firefox' ? UserAgentFirefox : command.userAgent
     }
     log( 'UserAgent', UserAgent )
 
-    processSamplePage( samplePage, command.rmdir )
-    .then( initMetadataStorage )
-    .then( loadCss )
-    .then( getSiteInfo )
-    .then( loadTemplate )
-    .then( getPages )
-    .then( saveMetadata )
-    .then( saveMimeTypes )
-    .then( closeMetadataStorage )
-    .catch( err => log( err )) // handleError
+    await loadPreRequisites( )
+    const sampleDom = await processSamplePage( samplePage, command.rmdir )
+    await initWikiDb()
+    await loadCss( sampleDom )
+    await getSiteInfo()
+    await getPages()
+    await saveMetadata()
+    await saveMimeTypes()
+    await closeMetadataStorage()
+    //~ .catch( err => log( err )) // handleError
 }
 
 function main () {
