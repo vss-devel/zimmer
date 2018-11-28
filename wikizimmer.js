@@ -40,8 +40,7 @@ const crypto = require("crypto")
 
 const command = require('commander')
 const fs = require('fs-extra')
-const Promise = require('bluebird')
-const requestPromise = require('request-promise')
+const requestPromise = require('request-promise-native')
 const sqlite = require( 'sqlite' )
 const cheerio = require('cheerio')
 const minify = require('html-minifier').minify

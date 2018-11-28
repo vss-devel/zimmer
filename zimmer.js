@@ -30,7 +30,6 @@ SOFTWARE.
 */
 
 const packageInfo = require('./package.json');
-const Promise = require( 'bluebird' )
 const os = require( 'os' )
 const osPath = require( 'path' )
 const process = require( 'process' )
