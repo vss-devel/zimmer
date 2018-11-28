@@ -445,13 +445,12 @@ class WikiItem {
 
     storeData ( data ) {
         if ( data == null )
-            return Promise.reject( new Error( 'data == null' ))
+            return
 
         const savePath = osPath.join( wiki.saveDir, this.localPath())
         log( '+', savePath )
 
         return fs.outputFile( savePath, data )
-        .then( () => this.localPath() )
     }
 
     async storeMetadata ( ) {
@@ -1187,41 +1186,38 @@ function initMetadataStorage ( samplePageDOM ) {
     .then( () => sqlite.open( dbName ))
     .then( db => {
         wiki.db = db
-        return wiki.db.exec(
-                'PRAGMA synchronous = OFF;' +
-                //~ 'PRAGMA journal_mode = OFF;' +
-                'PRAGMA journal_mode = WAL;' +
+    return wiki.db.exec(
+        'PRAGMA synchronous = OFF;' +
+        //~ 'PRAGMA journal_mode = OFF;' +
+        'PRAGMA journal_mode = WAL;' +
 
-                'BEGIN;' +
+        'BEGIN;' +
 
-                'CREATE TABLE articles (' + [
-                        'id INTEGER PRIMARY KEY',
-                        'mimeId INTEGER',
-                        'revision INTEGER',
-                        'urlKey TEXT',
-                        'titleKey TEXT',
-                        ].join(',') +
-                    ');' +
-                'CREATE TABLE redirects (' +
-                    'id INTEGER PRIMARY KEY,' +
-                    'targetKey TEXT, ' +
-                    'fragment TEXT ' +
-                    ');' +
-                'CREATE TABLE mimeTypes (' +
-                    'id INTEGER PRIMARY KEY,' +
-                    'value TEXT' +
-                    ');' +
-                'CREATE TABLE continue (' +
-                    'id INTEGER PRIMARY KEY,' +
-                    '"from" TEXT' +
-                    ');' +
+        'CREATE TABLE articles (' + [
+                'id INTEGER PRIMARY KEY',
+                'mimeId INTEGER',
+                'revision INTEGER',
+                'urlKey TEXT UNIQUE',
+                'titleKey TEXT',
+                ].join(',') +
+            ');' +
+        'CREATE TABLE redirects (' +
+            'id INTEGER PRIMARY KEY,' +
+            'targetKey TEXT, ' +
+            'fragment TEXT ' +
+            ');' +
+        'CREATE TABLE mimeTypes (' +
+            'id INTEGER PRIMARY KEY,' +
+            'value TEXT' +
+            ');' +
+        'CREATE TABLE continue (' +
+            'id INTEGER PRIMARY KEY,' +
+            '"from" TEXT' +
+            ');' +
 
-                'COMMIT;' +
-                ''
-            )
-        }
+        'COMMIT;' +
+        ''
     )
-    .then( () => samplePageDOM )
 }
 
 function closeMetadataStorage () {
