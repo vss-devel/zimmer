@@ -546,18 +546,15 @@ class Article extends ArticleStub {
 
             dom( '#bodyContent' ).replaceWith( content )
 
-            // remove comments
-            dom( '*' ).contents().each( (i, elem) => {
-                //~ log( 'comment', elem.type )
-                if ( elem.type === 'comment' ) {
-                    dom( elem ).remove()
-                }
-            })
-
             // display content inside <noscript> tags
             dom( 'noscript' ).each( (i, elem) => {
                 let e = dom( elem )
                 e.replaceWith( e.contents() )
+            })
+
+            // clean up
+            dom( wiki.pageRemovals ).each( (i, elem) => {
+                dom( elem ).remove()
             })
 
             // modify links
@@ -948,10 +945,11 @@ async function processSamplePage ( samplePageUrl,  rmdir) {
     return dom
 }
 
-function loadTemplate () {
+async function loadPreRequisites () {
     const stubPath = osPath.resolve( module.filename, '../stub.html' )
-    return fs.readFile ( stubPath )
-    .then( stub => (wiki.pageTemplate = stub))
+    wiki.pageTemplate = await fs.readFile ( stubPath, 'utf8' )
+    const removalsPath = osPath.resolve( module.filename, '../removals.txt' )
+    wiki.pageRemovals = await fs.readFile ( removalsPath, 'utf8' )
 }
 
 async function getSiteInfo () {
