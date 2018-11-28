@@ -1,0 +1,7 @@
+#toc,
+.article-status,
+.thumbcaption .magnify,
+a[href*="action=edit"],
+.editsection,
+.mw-editsection,
+.thumbinner a[data-lon]

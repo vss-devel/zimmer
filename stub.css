@@ -19,24 +19,28 @@ body#zim {
     line-height: inherit;
     margin: 0.5em 0;
 }
-#zim #toc {
+/*
+#zim #toc,
+#zim .article-status,
+#zim .thumbcaption .magnify,
+#zim .editsection,
+#zim .mw-editsection
+{
     display: none;
 }
-#zim .article-status {
-    display: none;
-}
-#zim .thumbcaption .magnify {
-    display: none;
-}
+*/
 #zim table.wikitable, table.nicetable {
     margin-right: 0;
     margin-left: 0;
 }
 
 /* for en.wikivoyage.org */
-.thumbinner a[data-lon] { /* supress Kartographer chartlet */
+/* supress Kartographer chartlet */
+/*
+.thumbinner a[data-lon] { 
     display: none;
 }
+*/
 #zim #geoCoord {
     top: -20px;
 }
