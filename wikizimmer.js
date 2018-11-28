@@ -454,23 +454,28 @@ class WikiItem {
         .then( () => this.localPath() )
     }
 
-    storeMetadata ( ) {
+    async storeMetadata ( ) {
         const row = [
             this.urlKey(),
             this.titleKey(),
             this.revision,
             this.mimeId(),
         ]
-        return wiki.db.run(
-            'INSERT INTO articles ( urlKey, titleKey, revision, mimeId ) VALUES ( ?,?,?,? )',
-            row
-        )
-        .then( res => {
-            //~ log( 'storeMetadata res', res )
+        try {
+            const res = await wiki.db.run(
+                'INSERT INTO articles ( urlKey, titleKey, revision, mimeId ) VALUES ( ?,?,?,? )',
+                row
+            )
+            //~ log( 'storeMetadata res', row, res )
             this.id = res.stmt.lastID
             ++ articleCount
             return this.id
-        })
+        } catch ( err ) {
+            if ( err.code == "SQLITE_CONSTRAINT" )
+                return null
+            fatal( 'storeMetadata error', err )
+        }
+
     }
 
     save () {
