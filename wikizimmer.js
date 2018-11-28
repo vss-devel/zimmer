@@ -44,6 +44,7 @@ const Promise = require('bluebird')
 const requestPromise = require('request-promise')
 const sqlite = require( 'sqlite' )
 const cheerio = require('cheerio')
+const minify = require('html-minifier').minify
 
 const langs = require('langs')
 const encodeurl = require('encodeurl')
@@ -580,8 +581,15 @@ class Article extends ArticleStub {
             this.mimeType = 'text/html'
             this.encoding = 'utf-8'
             const out = dom.html()
-            return out
-
+            const minified = minify( out, {
+                collapseWhitespace: true,
+                conservativeCollapse: true,
+                decodeEntities: true,
+                sortAttributes: true,
+                sortClassName: true,
+                removeComments: true,
+            })
+            return minified
         } catch ( err ) {
             log( err )
             return null
