@@ -466,7 +466,9 @@ class WikiItem {
     }
 
     process () {
-        return Promise.resolve()
+        if ( this.blackListed() )
+            return ''
+    return Promise.resolve()
         .then( () => this.getData())
         .then( data => this.store( data ))
         .then( () => this.storeMetadata() )
@@ -860,6 +862,8 @@ class Style extends LayoutItem {
             if ( rurl != null ) {
                 let newUrl = this.pathToTop() + '..' + rurl
                 out = start + newUrl + end
+            } else {
+                out = ''
             }
             return out
         })
@@ -882,7 +886,7 @@ class GlobalCss extends LayoutItem {
         const requests = cssLinks.map( elem => this.getCss( elem.attribs.href ))
 
         const stub = osPath.resolve( module.filename, '../stub.css' )
-        requests.unshift( fs.readFile( stub ))
+        requests.unshift( fs.readFile( stub, 'utf8' ))
 
         const chunks = await Promise.all( requests )
         return chunks.join( '\n' )
@@ -890,14 +894,14 @@ class GlobalCss extends LayoutItem {
 
     async getCss( cssUrl ) {
         let css = new Style( cssUrl )
-        const src = await css.getData()
+        const data = await css.getData()
 
         const outcss = `/*
 *
 * from ${cssUrl}
 *
 */
-${src}
+${data}
 `
         return outcss
     }
@@ -1247,7 +1251,6 @@ function core ( samplePage ) {
 }
 
 function main () {
-
     command
     .version( packageInfo.version )
     .arguments( '<wiki-page-URL>' )
@@ -1266,9 +1269,12 @@ function main () {
     .option( '-d, --no-download-errors', "ignore download errors, 404 error is ignored anyway" )
     .option( '-e, --retry-external [times]', "number of retries on external site error" )
     .option( '--user-agent [firefox or string]', "set user agent" )
-    .option( '-p, --url-replace [parrern|replacement,...]', "URL replacements", ( patterns ) => {
+    .option( '-p, --url-replace [pattern|replacement,...]', "URL replacements", ( patterns ) => {
         const repls = patterns.split( ',' )
         return repls.map( r => r.split( '|' ))
+        } )
+    .option( '-b, --url-blacklist [pattern|...]', "blacklisted URLs", ( patterns ) => {
+        return patterns.split( '|' )
         } )
     .parse( process.argv )
 
