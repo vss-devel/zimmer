@@ -645,18 +645,14 @@ class Article extends ArticleStub {
         return elem.attribs.style = await style.getData()
     }
 
-    async transformImg ( elem ) {
+    async saveImage ( elem ) {
         delete elem.attribs.srcset
         let url = elem.attribs.src
         if (! url || url.startsWith( 'data:' ))
-            return url
-        return elem.attribs.src = await this.saveImage( url )
-    }
-
-    async saveImage ( url ) {
+            return
         const image = new Image( url )
         const localPath = await image.save()
-        return encodeURI( this.pathToTop() + '../' + localPath )
+        elem.attribs.src = encodeURI( this.pathToTop() + '../' + localPath )
     }
 }
 
