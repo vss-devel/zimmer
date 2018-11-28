@@ -335,9 +335,11 @@ class WikiItem {
     }
 
     async getData () {
-        let data = await ( this.data !== undefined ? Promise.resolve( this.data ) : ( this.data = this.load( )))
-        if ( Buffer.isBuffer( data ) && this.encoding != null )
-            data = iconv.decode( data, this.encoding )
+        let data = await ( this.data !== undefined ? this.data : ( this.data = this.load( )))
+        return this.preProcess( data )
+    }
+
+    preProcess ( data ) {
         return data
     }
 
@@ -527,17 +529,12 @@ class Article extends ArticleStub {
         super( pageInfo )
     }
 
-    load () {
-        return super.load()
-        .then( body => this.preProcess( body ))
-    }
-
-    async preProcess( data, reply ) {
+    async preProcess( data ) {
         let src
         try {
             src = cheerio.load( data )
         } catch ( e ) {
-            log( 'cheerio.load error', e, data, reply )
+            log( 'cheerio.load error', e, data )
             return data
         }
         try {
@@ -840,29 +837,21 @@ class Style extends LayoutItem {
         this.data = data
     }
 
-    async getData () {
-        try {
-            const src = await super.getData()
-            return await this.transformStyle( src )
-        } catch ( err ) {
-            log( 'Style.getData error', this.url, err )
-            return ''
-        }
-    }
-
-    async transformStyle ( src ) {
+    async preProcess ( data ) {
         // collect urls using dummy replacements
         const urlre = /(url\(['"]?)([^\)]*[^\)'"])(['"]?\))/g
         const requests = []
-        src.replace( urlre, ( match, start, url, end ) => {
+        data.replace( urlre, ( match, start, url, end ) => {
             if ( ! url.startsWith( 'data:' )) {
                 const styleItem = new LayoutItem( urlconv.resolve( this.url, url ))
                 requests.push( styleItem.save() )
+            } else {
+                requests.push( url )
             }
             return match
         })
         const resolvedUrls = await Promise.all( requests )
-        const transformed = src.replace( urlre, ( match, start, url, end ) => {
+        const transformed = data.replace( urlre, ( match, start, url, end ) => {
             let out = match
             const rurl = resolvedUrls.shift()
             if ( rurl != null ) {
