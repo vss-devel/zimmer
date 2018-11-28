@@ -353,6 +353,13 @@ class WikiItem {
         }
     }
 
+    blackListed () {
+        if ( typeof command.urlBlacklist != 'object' ) {
+            return false
+        }
+        return command.urlBlacklist.some( patt => this.url.includes( patt ))
+    }
+
     load () {
         return http({
                 url: this.urlReplacements(),
