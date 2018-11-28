@@ -689,28 +689,6 @@ class Redirect extends ArticleStub {
     }
 }
 
-class MainPage extends Redirect {
-    constructor ( ) {
-        super({ fullurl: 'mainpage' })
-    }
-    basePath () {
-        return 'mainpage'
-    }
-    storeMetadata ( ) {
-        return apiPost({
-            action: 'query',
-            titles: wiki.mainPage,
-            redirects: '',
-            prop: 'info',
-            inprop: 'url',
-        })
-        .then( reply => {
-            Object.keys( reply.query.pages ).map( key => this.to = reply.query.pages[ key ])
-            return super.storeMetadata()
-        })
-    }
-}
-
 class Metadata extends WikiItem {
     constructor ( url, data ) {
         super( 'M', url)
@@ -719,6 +697,38 @@ class Metadata extends WikiItem {
     }
     getData () {
         return this.data
+    }
+}
+
+class MainPage extends WikiItem {
+    constructor ( ) {
+        super( '.', 'mainpage' )
+        this.mimeType = 'text/plain'
+    }
+    basePath () {
+        return 'mainpage'
+    }
+    async getData  ( ) {
+        const reply = await apiPost({
+            action: 'query',
+            titles: wiki.mainPage,
+            redirects: '',
+            prop: 'info',
+            inprop: 'url',
+        })
+        try {
+            const to = Object.keys( reply.query.pages ).map( key => this.to = reply.query.pages[ key ])[0]
+            const target = new ArticleStub( to )
+
+            return target.basePath()
+        } catch ( err ) {
+            return null
+        }
+    }
+    async save () {
+        const data = await this.getData()
+        await this.storeData( data )
+        return this.localPath()
     }
 }
 
