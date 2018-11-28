@@ -67,7 +67,6 @@ const mimeIds = []
 let articleCount = 0
 let redirectCount = 0
 let http // http request
-let indexerDb
 
 // https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247
 // just in case https://www.mediawiki.org/wiki/Manual:Page_title
@@ -442,7 +441,7 @@ class WikiItem {
         return id
     }
 
-    store ( data ) {
+    storeData ( data ) {
         if ( data == null )
             return Promise.reject( new Error( 'data == null' ))
 
@@ -460,7 +459,7 @@ class WikiItem {
             this.revision,
             this.mimeId(),
         ]
-        return indexerDb.run(
+        return wiki.db.run(
             'INSERT INTO articles ( urlKey, titleKey, revision, mimeId ) VALUES ( ?,?,?,? )',
             row
         )
@@ -472,12 +471,12 @@ class WikiItem {
         })
     }
 
-    process () {
+    save () {
         if ( this.blackListed() )
             return ''
     return Promise.resolve()
         .then( () => this.getData())
-        .then( data => this.store( data ))
+        .then( data => this.storeData( data ))
         .then( () => this.storeMetadata() )
         .then( () => this.localPath() )
         .catch( err => {
@@ -657,7 +656,7 @@ class Article extends ArticleStub {
 
     async saveImage ( url ) {
         const image = new Image( url )
-        const localPath = await image.process()
+        const localPath = await image.save()
         return encodeURI( this.pathToTop() + '../' + localPath )
     }
 }
@@ -694,7 +693,7 @@ class Redirect extends ArticleStub {
 
             log( '>', this.title || this.url, row)
 
-            indexerDb.run(
+            wiki.db.run(
                 'INSERT INTO redirects (id, targetKey, fragment) VALUES (?,?,?)',
                 row
             )
@@ -753,10 +752,10 @@ class PageComponent extends WikiItem {
         return sanitizeFN( decodeURIComponent( name ))
     }
 
-    process () {
+    save () {
         let saved = urlCache.get( this.url )
         if (! saved ) {
-            saved = super.process()
+            saved = super.save()
             urlCache.set( this.url, saved )
 
             saved.then( localPath => { // keep item's data in the cache
@@ -779,10 +778,10 @@ class Image extends PageComponent {
         return super.getData()
     }
 */
-    process () {
+    save () {
         if (! command.images )
             return Promise.resolve( this.localPath() )
-        return super.process()
+        return super.save()
     }
     basePath () {
         if ( ! this.url )
@@ -858,7 +857,7 @@ class Style extends LayoutItem {
         src.replace( urlre, ( match, start, url, end ) => {
             if ( ! url.startsWith( 'data:' )) {
                 const styleItem = new LayoutItem( urlconv.resolve( this.url, url ))
-                requests.push( styleItem.process() )
+                requests.push( styleItem.save() )
             }
             return match
         })
@@ -1018,17 +1017,17 @@ async function saveMetadata () {
         Source: wiki.uri,
     }
 
-    await new MainPage().process()
-    await new FavIcon().process()
+    await new MainPage().save()
+    await new FavIcon().save()
 
     for ( let i in metadata ) {
-        await new Metadata( i, metadata[i] ).process()
+        await new Metadata( i, metadata[i] ).save()
     }
 }
 
 async function saveMimeTypes () {
     for ( let i=0, li=mimeIds.length; i < li; i++ ) {
-        await indexerDb.run(
+        await wiki.db.run(
             'INSERT INTO mimeTypes (id, value) VALUES (?,?)',
             [ i + 1, mimeIds[ i ]]
         )
@@ -1077,7 +1076,7 @@ function batchRedirects ( pageInfos ) {
                 return null
             item.to = target
             item.toFragment = rdr.tofragment
-            return new Redirect( item ).process()
+            return new Redirect( item ).save()
         })
         return Promise.all( done )
     })
@@ -1109,14 +1108,14 @@ async function batchPages ( nameSpace ) {
 
     let continueFrom = ''
     while ( true ) {
-        await indexerDb.run(
+        await wiki.db.run(
             'INSERT OR REPLACE INTO continue (id, "from") VALUES (1, ?)',
             [ continueFrom ]
         )
         if ( continueFrom == null )
             break
 
-        await indexerDb.run( 'BEGIN' )
+        await wiki.db.run( 'BEGIN' )
 
         const resp = await api( query )
         let pages = {}
@@ -1148,12 +1147,12 @@ async function batchPages ( nameSpace ) {
                 return null
             }
             log( '#', pageInfo.title )
-            return new Article( pageInfo ).process()
+            return new Article( pageInfo ).save()
         })
         done.push( batchRedirects( redirects ))
         await Promise.all( done )
 
-        await indexerDb.run( 'COMMIT' )
+        await wiki.db.run( 'COMMIT' )
 
         continueFrom = null
         try {
@@ -1186,7 +1185,7 @@ function loadCss( dom ) {
     if (! command.css )
         return Promise.resolve()
     const css = new GlobalCss( dom )
-    return css.process()
+    return css.save()
 }
 
 function initMetadataStorage ( samplePageDOM ) {
@@ -1197,8 +1196,8 @@ function initMetadataStorage ( samplePageDOM ) {
     .catch( () => null )
     .then( () => sqlite.open( dbName ))
     .then( db => {
-        indexerDb = db
-        return indexerDb.exec(
+        wiki.db = db
+        return wiki.db.exec(
                 'PRAGMA synchronous = OFF;' +
                 //~ 'PRAGMA journal_mode = OFF;' +
                 'PRAGMA journal_mode = WAL;' +
@@ -1236,7 +1235,7 @@ function initMetadataStorage ( samplePageDOM ) {
 }
 
 function closeMetadataStorage () {
-    return indexerDb.close()
+    return wiki.db.close()
 }
 
 function core ( samplePage ) {
