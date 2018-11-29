@@ -205,9 +205,9 @@ function writeUIntLE( buf, value, offset, byteLength ) {
         return offset + byteLength
     }
     if ( byteLength == 8 ) {
-        var low = value & 0xffffffff
-        var high = ( value - low ) / 0x100000000 - ( low < 0 ? 1 : 0 )
-        buf.writeInt32LE( low, offset )
+        var low = (( value & 0xffffffff ) >>> 1 ) * 2 + ( value & 0x1 ) // unsigned
+        var high = ( value - low ) / 0x100000000
+        buf.writeUInt32LE( low, offset )
         buf.writeUInt32LE( high, offset + 4 )
         return offset + byteLength
     } else {
