@@ -388,7 +388,7 @@ class Cluster {
             return Promise.resolve()
 
         // generate blob offsets
-        var offsets = Buffer.allocUnsafe(( nBlobs + 1 ) * 4 )
+        var offsets = Buffer.alloc(( nBlobs + 1 ) * 4 )
         var blobOffset = offsets.length
         for ( var i=0; i < nBlobs; i++ ) {
             offsets.writeUIntLE( blobOffset, i * 4, 4 )
@@ -595,7 +595,7 @@ class Item {
         header.articleCount++
 
         const isRedirect = redirectTarget != null // redirect dirEntry is shorter in 4 bytes
-        var buf = Buffer.allocUnsafe( isRedirect ? 12 : 16 )
+        var buf = Buffer.alloc( isRedirect ? 12 : 16 )
         var mimeId = this.mimeId()
 
         log( 'storeDirEntry', mimeId, this )
@@ -1231,7 +1231,7 @@ async function saveIndex ( params ) {
         log( logInfo, i, row )
         if ( params.rowCb )
             params.rowCb( row, i )
-        var buf = Buffer.allocUnsafe( params.byteLength )
+        var buf = Buffer.alloc( params.byteLength )
         writeUIntLE( buf, row[ params.rowField ], 0, params.byteLength )
 
         var offset = await out.write( buf )
