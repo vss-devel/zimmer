@@ -71,6 +71,7 @@ var out // output file writer
 
 var indexerDb
 var dirQueue
+var clusterWriter
 
 let preProcessed = false
 
@@ -1049,7 +1050,7 @@ function fillInMetadata () {
         [ 'Description', argv.description ],
         [ 'Language', argv.language ],
         [ 'logo', argv.favicon ],
-        [ 'mainpage', argv.welcome ],
+        //~ [ 'mainpage', argv.welcome ],
     ]
 
     const done = []
@@ -1334,7 +1335,7 @@ async function storeTitleIndex () {
 // <last entry / end>  string  n/a     zero terminated     empty string - end of MIME type list
 
 function getMimeTypes () {
-    var buf = Buffer.from( mimeTypeList.join( '\0' ) + '\0' )
+    var buf = Buffer.from( mimeTypeList.join( '\0' ) + '\0\0' )
     log( 'MimeTypes', mimeTypeList.length, buf.length )
 
     if ( buf.length > maxMimeLength ) {
