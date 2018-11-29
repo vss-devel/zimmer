@@ -59,6 +59,10 @@ const mimeTypes = require( 'mime-types' )
 const mmmagic = require( 'mmmagic' )
 const mimeMagic = new mmmagic.Magic( mmmagic.MAGIC_MIME_TYPE )
 
+const moment = require("moment")
+require("moment-duration-format")
+
+const startTime = Date.now()
 const cpuCount = os.cpus().length
 
 var srcPath
@@ -167,8 +171,31 @@ function getNameSpace ( mimeType ) {
     return '-'
 }
 
-function log ( arg ) {
-    argv && argv.verbose && console.log.apply( this, arguments )
+function elapsedStr( from , to = Date.now()) {
+    return moment.duration( to - from ).format('d[d]hh:mm:ss.SSS',{ stopTrim: "h" })
+}
+
+function log ( ...args ) {
+    console.log( elapsedStr( startTime ), ... args )
+}
+
+function warning ( ...args ) {
+    log( ...args )
+}
+
+function fatal ( ...args ) {
+    log( ...args )
+    osProcess.exit( 1 )
+}
+
+function mimeFromData ( data ) {
+    return new Promise(( resolve, reject ) =>
+        mimeMagic.detect( data, ( error, mimeType ) => {
+            if ( error )
+                return reject( error )
+            return resolve( mimeType )
+        })
+    )
 }
 
 function writeUIntLE( buf, value, offset, byteLength ) {
