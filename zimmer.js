@@ -1408,19 +1408,17 @@ async function initialise () {
 async function rawLoader () {
     const dirs = [ '' ]
 
-    function parseDirEntry ( path ) {
+    async function parseDirEntry ( path ) {
         if ( path == 'metadata.csv' || path == 'redirects.csv' )
-            return Promise.resolve()
+            return
 
-        return fs.lstat( fullPath( path ))
-        .then( stats => {
-            if ( stats.isDirectory())
-                return dirs.push( path )
-            if ( stats.isFile() || stats.isSymbolicLink()) {
-                return new RawFile( path ).process()
-            }
-            return Promise.reject( new Error( 'Invalid dir entry ' + absPath ))
-        })
+        const stats = await fs.lstat( fullPath( path ))
+        if ( stats.isDirectory())
+            return dirs.push( path )
+        if ( stats.isFile() || stats.isSymbolicLink()) {
+            return new RawFile( path ).process()
+        }
+        throw new Error( 'Invalid dir entry ' + absPath )
     }
 
     log( 'rawLoader start' )
@@ -1428,11 +1426,10 @@ async function rawLoader () {
     for ( let path; ( path = dirs.shift()) != null; ) {
         log( 'scanDirectory', path )
 
-        await Promise.map(
-            fs.readdir( fullPath( path )),
-            fname => parseDirEntry( osPath.join( path, fname )),
-            { concurrency: 8 }
-        )
+        const dirlist = await fs.readdir( fullPath( path ))
+        for ( let fname of dirlist ) {
+            await parseDirEntry( osPath.join( path, fname ))
+        }
     }
 
     log( 'rawLoader finished !!!!!!!!!' )
