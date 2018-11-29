@@ -426,42 +426,54 @@ class Cluster {
 }
 
 //
-// ClusterWriter
+// ClusterPool
 //
-var ClusterWriter = {
-    true: new Cluster( true ), // compressible cluster
-    false: new Cluster( false ), // uncompressible cluster
-    pool: genericPool.createPool(
-        {
-            create () { return Promise.resolve( Symbol() ) },
-            destroy ( resource ) { return Promise.resolve() },
-        },
-        { max: 8, }
-    ),
+class ClusterPool {
+    constructor () {
+        this.holder = {}
+        this.pool = genericPool.createPool(
+            {
+                create () { return Promise.resolve( Symbol() ) },
+                destroy ( resource ) { return Promise.resolve() },
+            },
+            { max: 8, }
+        )
+    }
 
-    append: async function ( mimeType, data, id /* for debugging */ ) {
+    removeCluster ( type ) {
+        delete this.holder[ type ]
+    }
+
+    getCluster ( type ) {
+        let cluster = this.holder[ type ]
+        if ( ! cluster )
+            cluster = this.holder[ type ] = new Cluster( type )
+        return cluster
+    }
+
+    async append ( mimeType, data, id /* for debugging */ ) {
         //~ log( 'ClusterWriter.append', arguments )
 
-        var compressible = ClusterWriter.isCompressible( mimeType, data, id )
-        var cluster = ClusterWriter[ compressible ]
+        var compressible = this.isCompressible( mimeType, data, id )
+        var cluster = this.getCluster( compressible )
         var clusterNum = cluster.id
         var blobNum = cluster.append( data )
 
         if ( blobNum === false ) { // store to a new cluster
-            ClusterWriter[ compressible ] = new Cluster( compressible )
-            const token = await ClusterWriter.pool.acquire()
+            this.removeCluster( compressible )
+            const token = await this.pool.acquire()
 
             cluster.save()
-            .then( () => ClusterWriter.pool.release( token ))
+            .then( () => this.pool.release( token ))
 
-            return ClusterWriter.append( mimeType, data, id )
+            return this.append( mimeType, data, id )
         }
 
         log( 'ClusterWriter.append', compressible, clusterNum, blobNum, data.length, id )
-        return Promise.resolve([ clusterNum, blobNum ])
-    },
+        return [ clusterNum, blobNum ]
+    }
 
-    isCompressible: function ( mimeType, data, id ) {
+    isCompressible ( mimeType, data, id ) {
         if ( data == null || data.length == 0 )
             return false
         if ( !mimeType ) {
@@ -471,7 +483,7 @@ var ClusterWriter = {
         if ( mimeType == 'image/svg+xml' || mimeType.split( '/' )[ 0 ] == 'text' )
             return true
         return !! ( mimeDb[ mimeType ] && mimeDb[ mimeType ].compressible )
-    },
+    }
 
     // The cluster pointer list is a list of 8 byte offsets which point to all data clusters in a ZIM file.
     // Field Name  Type    Offset  Length  Description
@@ -480,8 +492,8 @@ var ClusterWriter = {
     // <nth Cluster>   integer     (n-1)*8     8   pointer to the <nth Cluster>
     // ...     integer     ...     8   ...
 
-    storeIndex: async function () {
-        return saveIndex ({
+    async storeIndex () {
+        header.clusterPtrPos = await saveIndex ({
             query:
                 'SELECT ' +
                     'offset ' +
@@ -493,17 +505,17 @@ var ClusterWriter = {
             count: header.clusterCount,
             logInfo: 'storeClusterIndex',
         })
-        .then( offset => header.clusterPtrPos = offset )
-    },
+    }
 
-    finish: async function () {
+    async finish () {
         //~ log( 'ClusterWriter.finish', ClusterWriter )
-        await ClusterWriter[ true ].save() // save last compressible cluster
-        await ClusterWriter[ false ].save() // save last uncompressible cluster
-        await ClusterWriter.pool.drain()
-        await ClusterWriter.pool.clear()
-        return ClusterWriter.storeIndex()
-    },
+        for ( let i in this.holder ) { // save last clusters
+            await this.holder[ i ].save()
+        }
+        await this.pool.drain()
+        await this.pool.clear()
+        return this.storeIndex()
+    }
 }
 
 class NoProcessingRequired extends Error {
@@ -777,7 +789,7 @@ class DataItem extends Item {
         if ( !( data instanceof Buffer )) {
             data = Buffer.from( data )
         }
-        const [ clusterIdx, blobIdx ] = await ClusterWriter.append( this.mimeType, data, this.path )
+        const [ clusterIdx, blobIdx ] = await clusterWriter.append( this.mimeType, data, this.path )
         Object.assign( this, { clusterIdx, blobIdx })
     }
 
@@ -1381,6 +1393,8 @@ function calculateFileHash () {
 }
 
 async function initialise () {
+    clusterWriter = new ClusterPool
+
     var stat = await fs.stat( srcPath )
     if ( ! stat.isDirectory() ) {
         throw new Error( srcPath + ' is not a directory' )
@@ -1491,7 +1505,7 @@ async function loadRawArticles () {
 }
 
 async function postProcess () {
-    await ClusterWriter.finish()
+    await clusterWriter.finish()
     await sortArticles()
     await resolveRedirects()
     await storeUrlIndex()
