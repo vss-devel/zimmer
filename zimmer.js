@@ -474,6 +474,8 @@ class ClusterPool {
     }
 
     isCompressible ( mimeType, data, id ) {
+        if ( ! argv.compress )
+            return false
         if ( data == null || data.length == 0 )
             return false
         if ( !mimeType ) {
@@ -1576,6 +1578,7 @@ function main () {
     // Extra arguments:
     .option( '--optimg', 'optimise images' )
     .option( '--jpegquality <factor>', 'JPEG quality', parseInt, 60 )
+    .option( '--no-compress', "do not compress clusters" )
     .parse( process.argv )
 
     log( argv )
