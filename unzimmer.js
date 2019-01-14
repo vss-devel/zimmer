@@ -7,33 +7,25 @@
 /* MODULE VARIABLE SECTION **********/
 /************************************/
 
-const fs = require( 'fs-extra' )
-var mimeDb = require( 'mime-db' );
-var mime = require( 'mime-types' );
+const os = require('os')
+const osProcess = require('process')
+const osPath = require( 'path' )
+const expandHomeDir = require( 'expand-home-dir' )
 
-const packageInfo = require('./package.json');
+const fs = require( 'fs-extra' )
+const mimeDb = require( 'mime-db' )
+const mime = require( 'mime-types' )
+
+const packageInfo = require('./package.json')
 const genericPool = require( 'generic-pool' )
 const asyncRead = require('promised-read').read
 const cheerio = require('cheerio')
 const command = require('commander')
 
-const osProcess = require('process')
-var osPath = require( 'path' );
-var expandHomeDir = require( 'expand-home-dir' );
-//~ var lzma = require('lzma-native');
-var lzma = require('xz');
-//~ var lzma = require('node-liblzma');
-var csvOutput = require('csv-stringify');
+const csvOutput = require('csv-stringify')
 
 const moment = require("moment")
 require("moment-duration-format")
-
-var srcPath;
-var outPath;
-var src; // input file reader
-
-var articles = null;
-var metadata = [];
 
 const startTime = Date.now()
 
@@ -53,6 +45,25 @@ function fatal ( ...args ) {
     log( ...args )
     osProcess.exit( 1 )
 }
+
+//~ var lzma = require('lzma-native')
+try {
+  var lzma = require('xz')
+} catch (er) {
+    if ( os.type() == 'Windows_NT' ) {
+        fatal( 'Module "xz" is not available on Windows' )
+    } else {
+        fatal( 'Module "xz" is required' )
+    }
+}
+//~ var lzma = require('node-liblzma')
+
+var srcPath;
+var outPath;
+var src; // input file reader
+
+var articles = null;
+var metadata = [];
 
 function readUInt64LE(buf, offset) {
     var lowBits = buf.readUInt32LE(offset);
