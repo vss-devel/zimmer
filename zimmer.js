@@ -885,7 +885,7 @@ class File extends DataItem {
             }
             if ( metadata.format == 'gif' )
                 return data
-            return image.toBuffer()
+            return await image.toBuffer() // so to catch an error
         } catch ( err ) {
             log( 'Error otimizing image', err, this )
             return data
