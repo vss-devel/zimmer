@@ -89,7 +89,7 @@ function warning ( ...args ) {
 }
 
 function fatal ( ...args ) {
-    log( ...args )
+    console.trace( elapsedStr( startTime ), ... args )
     osProcess.exit( 1 )
 }
 

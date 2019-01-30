@@ -32,7 +32,7 @@ SOFTWARE.
 const packageInfo = require('./package.json');
 const os = require( 'os' )
 const osPath = require( 'path' )
-const process = require( 'process' )
+const osProcess = require( 'process' )
 const url = require( 'url' )
 const crypto = require( "crypto" )
 
@@ -144,7 +144,7 @@ function mimeFromIndex ( idx ) {
 function mimeTypeIndex ( mimeType ) {
     if ( mimeType == null ) {
         console.trace( 'No mime type found', mimeType )
-        process.exit( 1 )
+        osProcess.exit( 1 )
     }
     if ( mimeType == REDIRECT_MIME )
         return 0xffff
@@ -185,7 +185,7 @@ function warning ( ...args ) {
 }
 
 function fatal ( ...args ) {
-    log( ...args )
+    console.trace( elapsedStr( startTime ), ... args )
     osProcess.exit( 1 )
 }
 
@@ -297,8 +297,7 @@ class Writer {
         this.stream = fs.createWriteStream( path, { highWaterMark: 1024*1024*10 })
         this.stream.once( 'open', fd => { })
         this.stream.on( 'error', err => {
-            console.trace( 'Writer error', this.stream.path, err )
-            process.exit( 1 )
+            fatal( 'Writer error', this.stream.path, err )
         })
 
         this.queue = genericPool.createPool(
@@ -480,8 +479,7 @@ class ClusterPool {
         if ( data == null || data.length == 0 )
             return false
         if ( !mimeType ) {
-            console.error( 'isCompressible !mimeType', mimeType, data, id )
-            process.exit( 1 )
+            fatal( 'isCompressible !mimeType', mimeType, data, id )
         }
         if ( mimeType == 'image/svg+xml' || mimeType.split( '/' )[ 0 ] == 'text' )
             return true
@@ -1580,7 +1578,7 @@ function main () {
     .option( '--optimg', 'optimise images' )
     .option( '--jpegquality <factor>', 'JPEG quality', parseInt, 60 )
     .option( '--no-compress', "do not compress clusters" )
-    .parse( process.argv )
+    .parse( osProcess.argv )
 
     log( argv )
 
