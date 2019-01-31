@@ -1409,8 +1409,9 @@ async function initialise () {
     if ( await fs.exists( metadata )) {
         preProcessed = true
         try {
-            mainPage.urlKey = await fs.readFile( osPath.join( srcPath, 'mainpage' ))
+            mainPage.urlKey = 'A' + ( await fs.readFile( osPath.join( srcPath, 'mainpage' ))).toString()
         } catch ( err ) {
+            warning( 'mainpage error', err )
         }
         await openMetadata( metadata )
         return loadMimeTypes()
