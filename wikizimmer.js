@@ -279,40 +279,58 @@ function apiPost( params ) {
 class NameSpaceSet {
     constructor ( SiteInfo ) {
         this.nameSpaces = {}
-        this.nsQueue = []
-        this.nsUsed = new Set
-        Object.keys( SiteInfo.namespaces ).map( ns => {
+        this.queue = []
+        this.scheduled = new Set
+        Object.keys( SiteInfo.namespaces ).forEach( ns => {
             const nsInfo = SiteInfo.namespaces[ ns ]
-            this.nameSpaces[ nsInfo.canonical ] = this.nameSpaces[ nsInfo[ '*' ]] = this.nameSpaces[ ns ] = nsInfo
+            this.nameSpaces[ ns ] = nsInfo
+            if ( nsInfo[ '*' ] )
+                this.nameSpaces[ nsInfo[ '*' ]] = nsInfo
+            if ( nsInfo.canonical )
+                this.nameSpaces[ nsInfo.canonical ] = nsInfo
         })
         if ( SiteInfo.namespacealiases ) {
-            SiteInfo.namespacealiases.map( nsInfo => this.nameSpaces[ nsInfo[ '*' ]] = this.nameSpaces[ nsInfo.id ])
+            SiteInfo.namespacealiases.forEach( aliasInfo =>
+                this.nameSpaces[ aliasInfo[ '*' ]] = this.nameSpaces[ aliasInfo.id ]
+            )
         }
     }
 
-    check ( nsId ) {
-        return this.nsUsed.has( nsId )
+    isScheduled ( nsId ) {
+        return this.scheduled.has( nsId )
     }
 
-    init ( nsList = '0' ) {
-        nsList.split( ',' ).map( ns => this.request( ns ))
+    toBeDownloaded ( title ) {
+        const colIndex = title.indexOf( ':' )
+        if ( colIndex == -1 )
+            return true
+        const prefix = title.slice( 0, colIndex )
+        const ns = this.nameSpaces[ prefix ]
+        if ( ns !== undefined ) {
+            return this.isScheduled( ns.id )
+        }
+        return true
     }
 
-    request ( nsIdx ) {
-        const ns = this.nameSpaces[ nsIdx ]
+    toDownload ( nsList = '0' ) {
+        nsList.split( ',' ).map( nsId => this.schedule( nsId ))
+    }
+
+    schedule ( nsId ) {
+        const ns = this.nameSpaces[ nsId ]
         if ( ! ns ) {
-            fatal( 'This wiki does not have name space', nsIdx )
+            fatal( 'This wiki does not have name space', nsId )
             return
         }
-        if ( ! this.check( ns.id )) {
-            this.nsUsed.add( ns.id )
-            this.nsQueue.push( ns.id )
+        if ( ! this.isScheduled( ns.id )) {
+            this.scheduled.add( ns.id )
+            this.queue.push( ns.id )
         }
     }
 
     * [Symbol.iterator] () {
-        while ( this.nsQueue.length != 0 ) {
-            yield this.nsQueue.shift()
+        while ( this.queue.length != 0 ) {
+            yield this.queue.shift()
         }
     }
 }
@@ -520,6 +538,17 @@ class ArticleStub extends WikiItem {
         this.revision = pageInfo.lastrevid
     }
 
+    getTitle () {
+        if ( this.title )
+            return this.title
+        if ( this.url && this.url.startsWith( wiki.articleUriPrefix )) {
+            const urlParsed = urlconv.parse( this.url )
+            const subPath =  urlParsed.pathname.replace( wiki.articlePath, '' ).replace( /_/g, ' ' )
+            return decodeURIComponent( subPath )
+        }
+        return null // not a local article
+    }
+
     basePath () {
         if ( this.url && this.url.startsWith( wiki.articleUriPrefix )) {
             const urlParsed = urlconv.parse( this.url )
@@ -616,17 +645,19 @@ class Article extends ArticleStub {
             return
 
         const basePath = link.basePath()
-        if ( basePath != null ) { // local article link
-            if ( path.includes( ':' )) {
+        if ( basePath != null ) { // link to an article ?
+            const title = link.getTitle()
+            if ( ! wiki.nameSpaces.toBeDownloaded( title )) {
                 delete elem.attribs.href // block other name spaces
             } else {
-                elem.attribs.href = this.pathToTop() + basePath
+                elem.attribs.href = ( this.pathToTop() + basePath )
             }
-        }
-        const pathlc = path.toLowerCase()
-        for ( const ext of [ '.jpg', '.jpeg', '.png', '.gif', '.svg' ]) {
-            if (pathlc.endsWith( ext )) {
-                delete elem.attribs.href // block links to images
+        } else {
+            const pathlc = path.toLowerCase()
+            for ( const ext of [ '.jpg', '.jpeg', '.png', '.gif', '.svg' ]) {
+                if (pathlc.endsWith( ext )) {
+                    delete elem.attribs.href // block links to images
+                }
             }
         }
     }
@@ -1063,7 +1094,7 @@ function batchRedirects ( pageInfos ) {
             }
             if ( target.missing != null )
                 return null  // no target exists
-            if ( ! wiki.nameSpaces.check( target.ns ))
+            if ( ! wiki.nameSpaces.isScheduled( target.ns ))
                 return null
             item.to = target
             item.toFragment = rdr.tofragment
@@ -1163,7 +1194,7 @@ async function getPages () {
         log( 'Titles', command.titles )
         await batchPages()
     } else {
-        wiki.nameSpaces.init( command.nameSpaces )
+        wiki.nameSpaces.toDownload( command.nameSpaces )
         for ( let nameSpace of wiki.nameSpaces ) {
             log( 'Name Space', nameSpace )
             await batchPages( nameSpace )
