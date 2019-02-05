@@ -69,10 +69,10 @@ let http // http request
 
 // https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247
 // just in case https://www.mediawiki.org/wiki/Manual:Page_title
-const sanitizeRE = /(?:[\x00-\x1F<>:"\\\?\*]|%(?:[^0-9A-Fa-f]|[0-9A-Fa-f][^0-9A-Fa-f])|(?:[. ]$))+/g
+let sanitizeRE = /(?:[\x00-\x1F<>:"~\\\?\*]|%(?:[^0-9A-Fa-f]|[0-9A-Fa-f][^0-9A-Fa-f])|(?:[. ]$))+/g
 
 function sanitizeFN ( name ) { // after https://github.com/pillarjs/encodeurl
-    return String( name ).replace( sanitizeRE, encodeURIComponent )
+    return String( name ).replace( sanitizeRE, encodeURIComponent ).replace( /%/g, '~' )
     //~ return sanitizeFilename( name, { replacement: '.' })
 }
 
