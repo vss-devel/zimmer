@@ -284,9 +284,9 @@ class NameSpaceSet {
         Object.keys( SiteInfo.namespaces ).forEach( ns => {
             const nsInfo = SiteInfo.namespaces[ ns ]
             this.nameSpaces[ ns ] = nsInfo
-            if ( nsInfo[ '*' ] )
+            if ( nsInfo[ '*' ] !== undefined )
                 this.nameSpaces[ nsInfo[ '*' ]] = nsInfo
-            if ( nsInfo.canonical )
+            if ( nsInfo.canonical !== undefined )
                 this.nameSpaces[ nsInfo.canonical ] = nsInfo
         })
         if ( SiteInfo.namespacealiases ) {
