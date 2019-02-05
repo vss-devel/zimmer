@@ -888,7 +888,7 @@ class Style extends LayoutItem {
             let out = match
             const rurl = resolvedUrls.shift()
             if ( rurl != null ) {
-                let newUrl = this.pathToTop() + '..' + rurl
+                let newUrl = this.pathToTop() + '../' + rurl
                 out = start + newUrl + end
             } else {
                 out = ''
