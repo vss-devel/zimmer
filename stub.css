@@ -5,7 +5,7 @@
  */
 body#zim {
     font-size: 100%;
-    background-image: none;
+/*    background-image: none;*/
 }
 #zim #content {
     margin: 0px;
@@ -37,7 +37,7 @@ body#zim {
 /* for en.wikivoyage.org */
 /* supress Kartographer chartlet */
 /*
-.thumbinner a[data-lon] { 
+.thumbinner a[data-lon] {
     display: none;
 }
 */
