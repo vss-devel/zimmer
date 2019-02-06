@@ -57,21 +57,20 @@ will pack the content of the `en.wikivoyage.org` into the `en.wikivoyage.org.zim
 Run either of scripts with '--help' switch to see the list of all options available:
 
 ```
-$ wikizimmer -h
-
   Usage: wikizimmer [options] <wiki-page-URL>
 
   Dump a static-HTML snapshot of a MediaWiki-powered wiki.
 
   Where:
-    wiki-page-URL        URL of a sample page at the wiki to be dumped.
-                         This page's styling will be used as a template for all pages in the dump.
+    wiki-page-URL    URL of a sample page at the wiki to be dumped.
+                 This page's styling will be used as a template for all pages in the dump.
 
   Options:
 
     -V, --version                                output the version number
     -t, --titles [titles]                        get only titles listed (separated by "|")
     -x, --exclude [title regexp]                 exclude titles by a regular expression
+    -s, --name-spaces [name-space,...]           name spaces to download (default: 0, i.e main)
     -r, --rmdir                                  delete destination directory before processing the source
     --no-images                                  don't download images
     --no-css                                     don't page styling
@@ -79,7 +78,8 @@ $ wikizimmer -h
     -d, --no-download-errors                     ignore download errors, 404 error is ignored anyway
     -e, --retry-external [times]                 number of retries on external site error
     --user-agent [firefox or string]             set user agent
-    -p, --url-replace [parrern|replacement,...]  URL replacements
+    -p, --url-replace [pattern|replacement,...]  URL replacements
+    -b, --url-blacklist [pattern|...]            blacklisted URLs
     -h, --help                                   output usage information
 ```
 
