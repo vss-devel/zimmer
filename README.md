@@ -114,4 +114,4 @@ $ zimmer -h
     -h, --help                 output usage information
 ```
 
-**NB:** The most options of the zimmer.js are really optional if it's used in combination with wikizimmer.js as the later one saves the relevant metadata into the dump directory. Perhaps only `--optimg` is quite important one if you want to save some space.
+**NB:** The most options of the zimmer.js are optional as it fetches the relevant metadata from the dump created by wikizimmer.js. Perhaps only `--optimg` option is rather important if you want to save some space.
