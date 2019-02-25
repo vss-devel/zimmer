@@ -69,7 +69,7 @@ var srcPath
 var outPath
 var out // output file writer
 
-var indexerDb
+var wikiDb
 var dirQueue
 var clusterWriter
 
@@ -415,7 +415,7 @@ class Cluster {
         const offset = await out.write( Buffer.concat([ Buffer.from([ compression ]), data ]))
 
         log( 'Cluster saved', id, offset )
-        return indexerDb.run(
+        return wikiDb.run(
             'INSERT INTO clusters (id, offset) VALUES (?,?)',
             [
                 id,
@@ -576,7 +576,7 @@ class Item {
             this.mimeId(),
         ]
 
-        return indexerDb.run(
+        return wikiDb.run(
             'INSERT INTO articles ( urlKey, titleKey, revision, mimeId ) VALUES ( ?,?,?,? )',
             row
         )
@@ -632,7 +632,7 @@ class Item {
         const id = await this.getId()
         try {
             log( 'saveDirEntryIndex', id, offset, this.path )
-            return await indexerDb.run(
+            return await wikiDb.run(
                 'INSERT INTO dirEntries (id, offset) VALUES (?,?)',
                 [
                     id,
@@ -717,7 +717,7 @@ class Redirect extends Item {
 
     async saveRedirectIndex () {
         const id = await this.getId()
-        return indexerDb.run(
+        return wikiDb.run(
             'INSERT INTO redirects (id, targetKey, fragment) VALUES (?,?,?)',
             [
                 id,
@@ -1085,9 +1085,9 @@ function fillInMetadata () {
     return Promise.all( done )
 }
 
-async function openMetadata( dbName ) {
-    indexerDb = await sqlite.open( dbName )
-    return indexerDb.exec(`
+async function openWikiDb( dbName ) {
+    wikiDb = await sqlite.open( dbName )
+    return wikiDb.exec(`
         PRAGMA synchronous = OFF;
         PRAGMA journal_mode = WAL;
         DROP INDEX IF EXISTS articleUrlKey ;
@@ -1110,7 +1110,7 @@ async function openMetadata( dbName ) {
     )
 }
 
-async function newMetadata() {
+async function newWikiDb() {
     var dbName = ''
     if ( argv.verbose ) {
         var parsed = osPath.parse( outPath )
@@ -1120,8 +1120,8 @@ async function newMetadata() {
         await fs.unlink( dbName )
     } catch ( err ) {
     }
-    indexerDb = await sqlite.open( dbName )
-    return indexerDb.exec(
+    wikiDb = await sqlite.open( dbName )
+    return wikiDb.exec(
         'PRAGMA synchronous = OFF;' +
         'PRAGMA journal_mode = OFF;' +
         //~ 'PRAGMA journal_mode = WAL;' +
@@ -1151,7 +1151,7 @@ async function newMetadata() {
 }
 
 function sortArticles () {
-    return indexerDb.exec(`
+    return wikiDb.exec(`
         CREATE INDEX articleUrlKey ON articles (urlKey);
 
         CREATE TABLE urlSorted AS
@@ -1191,7 +1191,7 @@ async function loadRedirects () {
 }
 
 async function resolveRedirects () {
-    var stmt = await indexerDb.prepare( `
+    var stmt = await wikiDb.prepare( `
         SELECT
             src.id AS id,
             src.urlKey AS urlKey,
@@ -1238,7 +1238,7 @@ async function saveIndex ( params ) {
     log( logInfo, 'start', params.count )
 
     var startOffset
-    var stmt = await indexerDb.prepare( params.query )
+    var stmt = await wikiDb.prepare( params.query )
     var i = 0
     for ( let row; row = await stmt.get(); i++ ) {
         log( logInfo, i, row )
@@ -1405,18 +1405,18 @@ async function initialise () {
     log( 'reserving space for header and mime type list' )
     await out.write( Buffer.alloc( headerLength + maxMimeLength ))
 
-    var metadata = osPath.join( srcPath, 'metadata.db' )
-    if ( await fs.exists( metadata )) {
+    var dbPath = osPath.join( srcPath, 'metadata.db' )
+    if ( await fs.exists( dbPath )) {
         preProcessed = true
         try {
             mainPage.urlKey = 'A' + ( await fs.readFile( osPath.join( srcPath, 'mainpage' ))).toString()
         } catch ( err ) {
             warning( 'mainpage error', err )
         }
-        await openMetadata( metadata )
+        await openWikiDb( dbPath )
         return loadMimeTypes()
     } else {
-        await newMetadata()
+        await newWikiDb()
         return fillInMetadata()
     }
 }
@@ -1452,7 +1452,7 @@ async function rawLoader () {
 }
 
 async function loadPreProcessedArticles () {
-    var stmt = await indexerDb.prepare( `
+    var stmt = await wikiDb.prepare( `
         SELECT
             id ,
             mimeId ,
@@ -1484,7 +1484,7 @@ async function loadPreProcessedArticles () {
 }
 
 async function loadMimeTypes () {
-    var stmt = await indexerDb.prepare( `
+    var stmt = await wikiDb.prepare( `
         SELECT
             id ,
             value
@@ -1516,7 +1516,7 @@ async function postProcess () {
 
 async function finalise () {
     header.checksumPos = await out.close() // close the output stream
-    await indexerDb.close()
+    await wikiDb.close()
     await storeHeader()
     return calculateFileHash()
 }
