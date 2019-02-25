@@ -732,13 +732,9 @@ class Metadata extends WikiItem {
     }
 }
 
-class MainPage extends WikiItem {
+class MainPage extends Metadata {
     constructor ( ) {
-        super( '.', 'mainpage' )
-        this.mimeType = 'text/plain'
-    }
-    basePath () {
-        return 'mainpage'
+        super( 'mainpage' )
     }
     async getData  ( ) {
         const reply = await apiPost({
