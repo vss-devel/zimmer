@@ -639,27 +639,22 @@ class Item {
             fatal( 'storeDirEntry error: clusterIdx == null', this )
             return
         }
-
         header.articleCount++
-
-        const isRedirect = redirectTarget != null // redirect dirEntry is shorter in 4 bytes
-        var buf = Buffer.alloc( isRedirect ? 12 : 16 )
-        var mimeId = this.mimeId()
-
+        const mimeId = this.mimeId()
         log( 'storeDirEntry', mimeId, this )
-        writeUIntLE( buf, mimeId,      0, 2 )
-        writeUIntLE( buf, 0,           2, 1 ) // parameters length
-        buf.write( this.nameSpace,     3, 1 )
-        buf.writeIntLE( this.revision, 4, 4 )
-        writeUIntLE( buf, clusterIdx || redirectTarget || 0, 8, 4 ) // or redirect target article index
-        if ( ! isRedirect )
-            writeUIntLE( buf, blobIdx,  12, 4 )
+        const chunks = [
+            [ mimeId, 2 ],
+            [ 0, 1 ], // parameters length
+            this.nameSpace,
+            [ this.revision, 4 ],
+            [ clusterIdx || redirectTarget || 0, 4 ], // or redirect target article index
+            redirectTarget == null ? [ blobIdx, 4 ] : '', // if not a redirect
+            this.path + '\0',
+            this.title + '\0',
+        ]
 
-        var urlBuf = Buffer.from( this.path + '\0' )
-        var titleBuf = Buffer.from( this.title + '\0' )
-
-        this.dirEntry = await out.write( Buffer.concat([ buf, urlBuf, titleBuf ]))
-        log( 'storeDirEntry done', this.dirEntry, buf.length, this.path )
+        this.dirEntryOffset = await out.write( chunksToBuffer( chunks ))
+        log( 'storeDirEntry done', this.dirEntryOffset, this.path )
         return this.saveDirEntryIndex( this.dirEntry )
     }
 
@@ -1379,27 +1374,28 @@ function getHeader () {
     //~ log( 'Header', 'articleCount', header.articleCount, 'clusterCount', header.clusterCount, 'mainPage', mainPage )
     log( 'Header', header )
 
-    var buf = Buffer.alloc( headerLength )
-    writeUIntLE( buf, header.magicNumber,     0, 4 )
-    writeUIntLE( buf, header.versionMajor,    4, 2 )
-    writeUIntLE( buf, header.versionMinor,    6, 2 )
+    const chunks = [
+        [ header.magicNumber,    4 ],
+        [ header.versionMajor,   2 ],
+        [ header.versionMinor,   2 ],
 
-    header.uuid.copy( buf,                    8 )
+        header.uuid,
 
-    writeUIntLE( buf, header.articleCount,    24, 4 )
-    writeUIntLE( buf, header.clusterCount,    28, 4 )
+        [ header.articleCount,   4 ],
+        [ header.clusterCount,   4 ],
 
-    writeUIntLE( buf, header.urlPtrPos,       32, 8 )
-    writeUIntLE( buf, header.titlePtrPos,     40, 8 )
-    writeUIntLE( buf, header.clusterPtrPos,   48, 8 )
-    writeUIntLE( buf, header.mimeListPos,     56, 8 )
+        [ header.urlPtrPos,      8 ],
+        [ header.titlePtrPos,    8 ],
+        [ header.clusterPtrPos,  8 ],
+        [ header.mimeListPos,    8 ],
 
-    writeUIntLE( buf, header.mainPage,        64, 4 )
-    writeUIntLE( buf, header.layoutPage,      68, 4 )
+        [ header.mainPage,       4 ],
+        [ header.layoutPage,     4 ],
 
-    writeUIntLE( buf, header.checksumPos,     72, 8 )
-
-    return buf
+        [ header.checksumPos,    8 ],
+    ]
+    
+    return chunksToBuffer( chunks )
 }
 
 async function storeHeader() {
