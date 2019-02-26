@@ -326,7 +326,7 @@ class Writer {
     write ( data ) {
         return this.queue.acquire()
         .then( token => {
-            const result =  this.position
+            const startPosition =  this.position
             this.position += data.length
 
             const saturated = ! this.stream.write( data )
@@ -335,7 +335,7 @@ class Writer {
             } else {
                 this.queue.release( token )
             }
-            return result
+            return startPosition
         })
     }
 
@@ -655,18 +655,18 @@ class Item {
 
         this.dirEntryOffset = await out.write( chunksToBuffer( chunks ))
         log( 'storeDirEntry done', this.dirEntryOffset, this.path )
-        return this.saveDirEntryIndex( this.dirEntry )
+        return this.saveDirEntryIndex()
     }
 
-    async saveDirEntryIndex ( offset ) {
+    async saveDirEntryIndex ( ) {
         const id = await this.getId()
         try {
-            log( 'saveDirEntryIndex', id, offset, this.path )
+            log( 'saveDirEntryIndex', id, this.dirEntryOffset, this.path )
             return await wikiDb.run(
                 'INSERT INTO dirEntries (id, offset) VALUES (?,?)',
                 [
                     id,
-                    offset,
+                    this.dirEntryOffset,
                 ]
             )
         } catch ( err ) {
@@ -1329,15 +1329,15 @@ async function storeUrlIndex () {
 
 async function storeTitleIndex () {
     header.titlePtrPos = await saveIndex ({
-        query:
-            'SELECT ' +
-                'titleKey, ' +
-                'urlSorted.rowid - 1 AS articleNumber ' +
-            'FROM urlSorted ' +
-            'JOIN articles ' +
-            'USING (id) ' +
-            'ORDER BY titleKey ' +
-            ';',
+        query: `
+            SELECT 
+                titleKey, 
+                urlSorted.rowid - 1 AS articleNumber 
+            FROM urlSorted 
+            JOIN articles 
+            USING (id) 
+            ORDER BY titleKey 
+            ;`,
         byteLength: 4,
         count: header.articleCount,
         logPrefix: 'storeTitleIndex',
@@ -1401,7 +1401,7 @@ function getHeader () {
 async function storeHeader() {
     var buf = Buffer.concat([ getHeader(), getMimeTypes() ])
     var fd = await fs.open( outPath, 'r+' )
-    await fs.writeSync( fd, buf, 0, buf.length, 0 )
+    await fs.write( fd, buf, 0, buf.length, 0 )
     return fs.close( fd )
 }
 
