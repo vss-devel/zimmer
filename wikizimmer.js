@@ -163,25 +163,25 @@ function pooledRequest( request, referenceUri, maxTokens = 1, interval = 10 ) {
             return true
         }
 
-        submit ( query ) {
+        async submit ( query ) {
             this.tokenCounter ++
-            return request( query )
-            .then( reply => {
+            try {
+                const reply = await request( query )
                 this.tokenCounter --
                 if ( reply )
                     query.resolve( reply )
                 else
                     query.reject( )
                 this.reshedule()
-            })
-            .catch( error => {
+            } catch ( error ) {
                 this.tokenCounter --
                 if ( ! this.retry( query, error )) {
                     warning( 'HTTP error',  error.cause && error.cause.code || error.statusCode, error.options.uri || error.options.url )
                     query.reject( error )
                     this.reshedule()
+                    return
                 }
-            })
+            }
         }
 
         run () {
@@ -252,7 +252,7 @@ function pooledRequest( request, referenceUri, maxTokens = 1, interval = 10 ) {
     }
 }
 
-function api ( params, options = {} ) {
+async function api ( params, options = {} ) {
     if ( options.method == 'POST' && options.form )
         options.form.format = 'json'
     else
@@ -261,12 +261,9 @@ function api ( params, options = {} ) {
         url: wiki.apiUrl,
         qs: params,
     })
-
-    return http( options )
-    .then( reply => {
-        const res = JSON.parse( reply.body )
-        return res.error || res.warning ? Promise.reject( res.error || res.warning ) : res
-    })
+    const reply = await http( options )
+    const res = JSON.parse( reply.body )
+    return res.error || res.warning ? Promise.reject( res.error || res.warning ) : res
 }
 
 function apiPost( params ) {
@@ -415,12 +412,12 @@ class WikiItem {
         }
 
         if ( this.mimeType == 'application/x-www-form-urlencoded' ) {
-            return mimeFromData( data )
-            .then( mimeType => {
+            try {
+                const mimeType = await mimeFromData( data )
                 this.mimeType = mimeType
                 return data
-            })
-            .catch( err => data )
+            } catch ( err ) {
+            }
         }
 
         if ( Buffer.isBuffer( data ) && this.encoding != null ) {
@@ -778,15 +775,15 @@ class PageComponent extends WikiItem {
         return sanitizeFN( decodeURIComponent( name ))
     }
 
-    save () {
+    async save () {
         let saved = urlCache.get( this.url )
         if (! saved ) {
             saved = super.save()
             urlCache.set( this.url, saved )
 
-            saved.then( localPath => { // keep item's data in the cache
-                urlCache.set( this.url, Promise.resolve( localPath ))
-            })
+            const localPath = await saved
+            // keep item's data in the cache
+            urlCache.set( this.url, localPath )
         }
         return saved
     }
@@ -804,9 +801,9 @@ class Image extends PageComponent {
         return super.getData()
     }
 */
-    save () {
+    async save () {
         if (! command.images )
-            return Promise.resolve( this.localPath() )
+            return this.localPath()
         return super.save()
     }
     basePath () {
@@ -1052,52 +1049,50 @@ async function saveMimeTypes () {
     }
 }
 
-function batchRedirects ( pageInfos ) {
+async function batchRedirects ( pageInfos ) {
     if ( pageInfos.length == 0 )
-        return Promise.resolve()
+        return
 
     const titles = pageInfos.map( item => item.title ).join( '|' )
 
-    return apiPost({
+    const reply = await apiPost({
         action: 'query',
         titles,
         redirects: '',
         prop: 'info',
         inprop: 'url',
     })
-    .then( reply => {
-        //~ log( 'batchRedirects reply', reply )
+    //~ log( 'batchRedirects reply', reply )
 
-        const redirects = reply.query.redirects
-        const redirectsByFrom = {}
-        redirects.map( item => ( redirectsByFrom[ item.from ] = item ))
+    const redirects = reply.query.redirects
+    const redirectsByFrom = {}
+    redirects.map( item => ( redirectsByFrom[ item.from ] = item ))
 
-        const targets = reply.query.pages
-        const targetsByTitle = {}
-        Object.keys( targets ).map( key => {
-            const item = targets[ key ]
-            targetsByTitle[ item.title ] = item
-        })
-
-        const done = pageInfos.map( item => {
-            let target = null
-            let rdr
-            for ( let from = item.title; target == null; from = rdr.to ) {
-                rdr = redirectsByFrom[ from ]
-                if ( ! rdr || rdr.tointerwiki != null || rdr.to == item.title )
-                    return null // dead end, interwiki or circular redirection
-                target = targetsByTitle[ rdr.to ]
-            }
-            if ( target.missing != null )
-                return null  // no target exists
-            if ( ! wiki.nameSpaces.isScheduled( target.ns ))
-                return null
-            item.to = target
-            item.toFragment = rdr.tofragment
-            return new Redirect( item ).save()
-        })
-        return Promise.all( done )
+    const targets = reply.query.pages
+    const targetsByTitle = {}
+    Object.keys( targets ).map( key => {
+        const item = targets[ key ]
+        targetsByTitle[ item.title ] = item
     })
+
+    const done = pageInfos.map( item => {
+        let target = null
+        let rdr
+        for ( let from = item.title; target == null; from = rdr.to ) {
+            rdr = redirectsByFrom[ from ]
+            if ( ! rdr || rdr.tointerwiki != null || rdr.to == item.title )
+                return null // dead end, interwiki or circular redirection
+            target = targetsByTitle[ rdr.to ]
+        }
+        if ( target.missing != null )
+            return null  // no target exists
+        if ( ! wiki.nameSpaces.isScheduled( target.ns ))
+            return null
+        item.to = target
+        item.toFragment = rdr.tofragment
+        return new Redirect( item ).save()
+    })
+    return Promise.all( done )
 }
 
 async function batchPages ( nameSpace ) {
@@ -1199,11 +1194,11 @@ async function getPages () {
     log( '**************** done' )
 }
 
-function loadCss( dom ) {
+async function loadCss( dom ) {
     if (! command.css )
-        return Promise.resolve()
+        return
     const css = new GlobalCss( dom )
-    return css.save()
+    await css.save()
 }
 
 async function initWikiDb () {
