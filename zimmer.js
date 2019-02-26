@@ -308,7 +308,6 @@ function cvsReader ( path, options ) {
 class Writer {
     constructor ( path ) {
         this.position = 0
-
         this.stream = fs.createWriteStream( path, { highWaterMark: 1024*1024*10 })
         this.stream.once( 'open', fd => { })
         this.stream.on( 'error', err => {
@@ -517,9 +516,12 @@ class ClusterPool {
                 'ORDER BY id ' +
                 ';',
             byteLength: 8,
-            rowField: 'offset',
             count: header.clusterCount,
-            logInfo: 'storeClusterIndex',
+            logPrefix: 'storeClusterIndex',
+            rowCb: ( row, index ) => {
+                return row.offset
+            },
+
         })
     }
 
@@ -1249,26 +1251,20 @@ async function resolveRedirects () {
 }
 
 async function saveIndex ( params ) {
-    const logInfo = params.logInfo || 'saveIndex'
-    log( logInfo, 'start', params.count )
-
-    var startOffset
-    var stmt = await wikiDb.prepare( params.query )
-    var i = 0
+    const logPrefix = params.logPrefix || 'saveIndex'
+    const stmt = await wikiDb.prepare( params.query )
+    let startOffset
+    let i = 0
     for ( let row; row = await stmt.get(); i++ ) {
-        log( logInfo, i, row )
-        if ( params.rowCb )
-            params.rowCb( row, i )
-        var buf = Buffer.alloc( params.byteLength )
-        writeUIntLE( buf, row[ params.rowField ], 0, params.byteLength )
-
-        var offset = await out.write( buf )
+        const val = params.rowCb( row, i )
+        log( logPrefix, i, val, row )
+        const offset = await out.write( toBuffer( val, params.byteLength ))
         if ( ! startOffset )
             startOffset = offset
     }
     await stmt.finalize()
 
-    log( logInfo, 'done', i, params.count, startOffset )
+    log( logPrefix, 'done', i, params.count, startOffset )
     return startOffset
 }
 
@@ -1299,12 +1295,12 @@ async function storeUrlIndex () {
             'ORDER BY urlSorted.rowid ' +
             ';',
         byteLength: 8,
-        rowField: 'offset',
         count: header.articleCount,
-        logInfo: 'storeUrlIndex',
-        rowCb: (row, index) => {
+        logPrefix: 'storeUrlIndex',
+        rowCb: ( row, index ) => {
             if ( row.urlKey == mainPage.urlKey )
                 mainPage.index = index
+            return row.offset
         }
     })
 }
@@ -1330,9 +1326,11 @@ async function storeTitleIndex () {
             'ORDER BY titleKey ' +
             ';',
         byteLength: 4,
-        rowField: 'articleNumber',
         count: header.articleCount,
-        logInfo: 'storeTitleIndex',
+        logPrefix: 'storeTitleIndex',
+        rowCb: ( row, index ) => {
+            return row.articleNumber
+        }
     })
 }
 
