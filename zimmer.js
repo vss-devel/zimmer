@@ -231,7 +231,7 @@ function chunksToBuffer( list ) {
     return Buffer.concat( chunks )
 }
 
-function spawn ( command, args, input ) { // after https://github.com/panosoft/spawn-promise
+async function spawn ( command, args, input ) { // after https://github.com/panosoft/spawn-promise
     var child = childProcess.spawn( command, args )
 
     // Capture errors
@@ -255,19 +255,21 @@ function spawn ( command, args, input ) { // after https://github.com/panosoft/s
     child.stdin.end()
 
     // Run
-    return new Promise( resolve => {
-        child.on( 'close', ( code, signal ) => resolve( code ))
+    await new Promise(( resolve, reject ) => {
+        child.on( 'close', ( code, signal ) => {
+            if ( code !== 0 ) {
+                reject( new Error( `Command failed: ${ code } ${ JSON.stringify( errors ) }` ))
+            } else {
+                resolve()
+            }
+        })
         child.stdin.end( input )
     })
-    .then( exitCode => {
-        if ( exitCode !== 0 )
-            return Promise.reject( new Error( `Command failed: ${ exitCode } ${ JSON.stringify( errors ) }` ))
 
-        //~ if ( Object.keys( errors ).length !== 0 )
-            //~ return Promise.reject( new Error( JSON.stringify( errors )))
+    //~ if ( Object.keys( errors ).length !== 0 )
+        //~ return Promise.reject( new Error( JSON.stringify( errors )))
 
-        return Buffer.concat( buffers )
-    })
+    return Buffer.concat( buffers )
 }
 
 function cvsReader ( path, options ) {
@@ -323,25 +325,23 @@ class Writer {
         )
     }
 
-    write ( data ) {
-        return this.queue.acquire()
-        .then( token => {
-            const startPosition =  this.position
-            this.position += data.length
+    async write ( data ) {
+        const token = await this.queue.acquire()
+        const startPosition =  this.position
+        this.position += data.length
 
-            const saturated = ! this.stream.write( data )
-            if ( saturated ) {
-                this.stream.once( 'drain', () => this.queue.release( token ))
-            } else {
-                this.queue.release( token )
-            }
-            return startPosition
-        })
+        const saturated = ! this.stream.write( data )
+        if ( saturated ) {
+            this.stream.once( 'drain', () => this.queue.release( token ))
+        } else {
+            this.queue.release( token )
+        }
+        return startPosition
     }
 
-    close () {
-        return this.queue.drain()
-        .then( () => new Promise( resolve => {
+    async close () {
+        await this.queue.drain()
+        return await new Promise( resolve => {
             this.queue.clear()
             this.stream.once( 'close', () => {
                 log( this.stream.path, 'closed', this.position, this.stream.bytesWritten )
@@ -349,7 +349,7 @@ class Writer {
             })
             log( 'closing', this.stream.path )
             this.stream.end()
-        }))
+        })
     }
 }
 
@@ -599,27 +599,23 @@ class Item {
         return Promise.resolve( this.id )
     }
 
-    saveItemIndex () {
+    async saveItemIndex () {
         if ( ! this.path ) {
             fatal( 'Item no url', this )
         }
-
         const row = [
             this.urlKey(),
             this.titleKey(),
             this.revision,
             this.mimeId(),
         ]
-
-        return wikiDb.run(
+        const result = await wikiDb.run(
             'INSERT INTO articles ( urlKey, titleKey, revision, mimeId ) VALUES ( ?,?,?,? )',
             row
         )
-        .then( res => {
-            const id = res.stmt.lastID
-            log( 'saveItemIndex', id, this )
-            return id
-        })
+        const id = result.stmt.lastID
+        log( 'saveItemIndex', id, this )
+        return id
     }
 
     // Article Entry
@@ -842,12 +838,12 @@ class File extends DataItem {
     //~ revision ,
     //~ urlKey ,
     //~ titleKey
-    getData () {
-        if ( this.data == null )
+    async getData () {
+        if ( this.data == null ) {
             this.data = fs.readFile( this.srcPath())
-            .then( data => this.preProcess( data ))
-
-        return Promise.resolve( this.data )
+        }
+        const data = await this.data
+        return await this.preProcess( data )
     }
 
     srcPath () {
@@ -953,7 +949,7 @@ class RawFile extends File {
         return super.preProcess( data )
     }
 
-    preProcessHtml ( data ) {
+    async preProcessHtml ( data ) {
         const dom = ( this.mimeType == 'text/html' ) && cheerio.load( data.toString())
         if ( dom ) {
             const title = dom( 'title' ).text()
@@ -966,13 +962,13 @@ class RawFile extends File {
                     title: this.title,
                     to: redirectTarget,
                 })
-                return redirect.process()
-                .then( () => Promise.reject( new NoProcessingRequired()))
+                await redirect.process()
+                return Promise.reject( new NoProcessingRequired())
             }
             if ( this.alterLinks( dom ))
                 data = Buffer.from( dom.html())
         }
-        return Promise.resolve( data )
+        return data
     }
 
     alterLinks ( dom ) {
@@ -1577,7 +1573,7 @@ async function core () {
 // -r, --redirects         path to the CSV file with the list of redirects (url, title, target_url tab separated).
 // -i, --withFullTextIndex index the content and add it to the ZIM.
 
-function main () {
+async function main () {
 
     argv
     .version( packageInfo.version )
@@ -1628,8 +1624,8 @@ function main () {
         //~ ClusterSizeThreshold = argv.minChunkSize * 1024
     //~ }
 
-    core ()
-    .then( () => log( 'Done...' ))
+    await core ()
+    log( 'Done...' )
 }
 
 main ()
