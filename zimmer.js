@@ -200,11 +200,6 @@ function mimeFromData ( data ) {
 }
 
 function writeUIntLE( buf, value, offset, byteLength ) {
-    offset = offset || 0
-    if ( typeof value == 'string' ) {
-        byteLength = buf.write( value, offset )
-        return offset + byteLength
-    }
     if ( byteLength == 8 ) {
         var low = (( value & 0xffffffff ) >>> 1 ) * 2 + ( value & 0x1 ) // unsigned
         var high = ( value - low ) / 0x100000000
@@ -214,6 +209,26 @@ function writeUIntLE( buf, value, offset, byteLength ) {
     } else {
         return buf.writeUIntLE( value, offset, byteLength )
     }
+}
+
+function toBuffer( value, byteLength ) {
+    const buf = Buffer.allocUnsafe( byteLength )
+    writeUIntLE( buf, value, 0, byteLength )
+    return buf
+}
+
+function chunksToBuffer( list ) {
+    const chunks = []
+    for ( const item of list ) {
+        let buf 
+        if ( Array.isArray( item )) {
+             buf = toBuffer( ...item )
+        } else {
+            buf = Buffer.from( item )
+        }
+        chunks.push( buf )
+    }
+    return Buffer.concat( chunks )
 }
 
 function spawn ( command, args, input ) { // after https://github.com/panosoft/spawn-promise
