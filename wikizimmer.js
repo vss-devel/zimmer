@@ -928,7 +928,7 @@ ${data}
     }
 }
 
-async function processSamplePage ( samplePageUrl,  rmdir) {
+async function processSamplePage ( samplePageUrl ) {
     const resp = await requestPromise({
         url: encodeurl( samplePageUrl ),
         resolveWithFullResponse: true,
@@ -939,12 +939,8 @@ async function processSamplePage ( samplePageUrl,  rmdir) {
     const realUrl = resp.request.href
     http = pooledRequest( requestPromise, realUrl )
 
-    // create download directory
     const purl = urlconv.parse( realUrl )
     wiki.saveDir = sanitizeFN( purl.hostname )
-    if ( rmdir )
-        await fs.remove( wiki.saveDir )
-    await fs.mkdirs( wiki.saveDir )
 
     const dom = cheerio.load( resp.body )
 
@@ -1210,7 +1206,7 @@ async function initWikiDb () {
     } catch (err) {
     }
     wiki.db = await sqlite.open( dbName )
-    return wiki.db.exec(
+    return await wiki.db.exec(
         'PRAGMA synchronous = OFF;' +
         //~ 'PRAGMA journal_mode = OFF;' +
         'PRAGMA journal_mode = WAL;' +
@@ -1248,6 +1244,20 @@ function closeMetadataStorage () {
     return wiki.db.close()
 }
 
+async function initDir ( ) {
+    let oldDir
+    if ( command.rmdir ) {
+        oldDir = wiki.saveDir + '$'
+        try {
+            await fs.move( wiki.saveDir, oldDir, { overwrite: true })
+        } catch ( err ) {
+            log( err )
+        }
+    }
+    await fs.mkdirs( wiki.saveDir )
+    return { done: command.rmdir ? fs.remove( oldDir ) : true }
+}
+
 async function core ( samplePage ) {
     if ( command.userAgent ) {
         UserAgent = command.userAgent == 'firefox' ? UserAgentFirefox : command.userAgent
@@ -1255,7 +1265,11 @@ async function core ( samplePage ) {
     log( 'UserAgent', UserAgent )
 
     await loadPreRequisites( )
+
     const sampleDom = await processSamplePage( samplePage, command.rmdir )
+
+    const oldDir = await initDir()
+
     await initWikiDb()
     await loadCss( sampleDom )
     await getSiteInfo()
@@ -1263,6 +1277,8 @@ async function core ( samplePage ) {
     await saveMetadata()
     await saveMimeTypes()
     await closeMetadataStorage()
+
+    await oldDir.done
     //~ .catch( err => log( err )) // handleError
 }
 
