@@ -74,7 +74,7 @@ Run either of scripts with '--help' switch to see the list of all options availa
     --content [selector]                         CSS selector for article content
     --remove [selector]                          CSS selector for removals in article content
     --template [file]                            non-standard article template
-    --style [file]                               additional article CSS style
+    --style [file or CSS]                        additional article CSS style
     --no-default-style                           don't use default CSS style
     --no-images                                  don't download images
     --no-css                                     don't page styling

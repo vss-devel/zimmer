@@ -1311,7 +1311,7 @@ function main () {
     .option( '--content [selector]', 'CSS selector for article content' )
     .option( '--remove [selector]', 'CSS selector for removals in article content' )
     .option( '--template [file]', 'non-standard article template' )
-    .option( '--style [file]', 'additional article CSS style' )
+    .option( '--style [file or CSS]', 'additional article CSS style' )
     .option( '--no-default-style', "don't use default CSS style" )
     .option( '--no-images', "don't download images" )
     .option( '--no-css', "don't page styling" )
