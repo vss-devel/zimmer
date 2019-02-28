@@ -10,8 +10,8 @@
 const os = require('os')
 const osProcess = require('process')
 const osPath = require( 'path' )
-const expandHomeDir = require( 'expand-home-dir' )
 
+const expandHomeDir = require( 'expand-home-dir' )
 const fs = require( 'fs-extra' )
 const mimeDb = require( 'mime-db' )
 const mime = require( 'mime-types' )
