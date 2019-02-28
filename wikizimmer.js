@@ -570,9 +570,14 @@ class Article extends ArticleStub {
             return data
         }
         try {
-            let content = src( '#bodyContent' )
-            if ( content.length == 0 ) {
-                content = src( 'article' )
+            let content = []
+            if ( command.content ) {
+                content =  src( command.content )
+            } else {
+                content = src( '#bodyContent' )
+                if ( content.length == 0 ) {
+                    content = src( 'article' ) //wikia
+                }
             }
             if ( content.length == 0 ) {
                 fatal( "Article.preProcess -- fatal error: Can't find article's content:", this.title )
@@ -686,7 +691,6 @@ class Article extends ArticleStub {
 }
 
 class Redirect extends ArticleStub {
-
     constructor ( info ) {
         super( info )
         this.data = null
@@ -906,10 +910,8 @@ class GlobalCss extends LayoutItem {
         const cssLinks = this.sourceDOM( 'link[rel=stylesheet][media!=print]' ).toArray()
         const requests = cssLinks.map( elem => this.getCss( elem.attribs.href ))
 
-        const stub = osPath.resolve( module.filename, '../stub.css' )
-        requests.unshift( fs.readFile( stub, 'utf8' ))
-
         const chunks = await Promise.all( requests )
+        chunks.unshift( wiki.pageCss )
         return chunks.join( '\n' )
     }
 
@@ -967,10 +969,22 @@ async function processSamplePage ( samplePageUrl ) {
 }
 
 async function loadPreRequisites () {
-    const stubPath = osPath.resolve( module.filename, '../stub.html' )
-    wiki.pageTemplate = await fs.readFile ( stubPath, 'utf8' )
+    const templatePath = command.template ? command.template : osPath.resolve( module.filename, '../stub.html' )
+    wiki.pageTemplate = await fs.readFile ( templatePath, 'utf8' )
+   
     const removalsPath = osPath.resolve( module.filename, '../removals.txt' )
-    wiki.pageRemovals = await fs.readFile ( removalsPath, 'utf8' )
+    wiki.pageRemovals = command.remove ? command.remove : await fs.readFile ( removalsPath, 'utf8' )
+
+    const css = [ ]
+    if ( command.defaultStyle ) 
+        css.push( await fs.readFile( osPath.resolve( module.filename, '../stub.css' ), 'utf8' ))
+    if ( command.style ) 
+        try { // assume that's a file name
+            css.push( await fs.readFile( command.style , 'utf8' ))
+        } catch ( err ) { // treat as a literal
+            css.push( command.style )
+        }
+    wiki.pageCss = css.join( '\n' )
 }
 
 async function getSiteInfo () {
@@ -1294,13 +1308,17 @@ function main () {
     .option( '-t, --titles [titles]', 'get only titles listed (separated by "|")' )
     .option( '-x, --exclude [title regexp]', 'exclude titles by a regular expression' )
     .option( '-s, --name-spaces [name-space,...]', 'name spaces to download (default: 0, i.e main)' )
-    .option( '-r, --rmdir', 'delete destination directory before processing the source' )
+    .option( '--content [selector]', 'CSS selector for article content' )
+    .option( '--remove [selector]', 'CSS selector for removals in article content' )
+    .option( '--template [file]', 'non-standard article template' )
+    .option( '--style [file]', 'additional article CSS style' )
+    .option( '--no-default-style', "don't use default CSS style" )
     .option( '--no-images', "don't download images" )
     .option( '--no-css', "don't page styling" )
     .option( '--no-pages', "don't save downloaded pages" )
+    .option( '--user-agent [firefox or string]', "set user agent" )
     .option( '-d, --no-download-errors', "ignore download errors, 404 error is ignored anyway" )
     .option( '-e, --retry-external [times]', "number of retries on external site error" )
-    .option( '--user-agent [firefox or string]', "set user agent" )
     .option( '-p, --url-replace [pattern|replacement,...]', "URL replacements", ( patterns ) => {
         const repls = patterns.split( ',' )
         return repls.map( r => r.split( '|' ))
@@ -1308,6 +1326,7 @@ function main () {
     .option( '-b, --url-blacklist [pattern|...]', "blacklisted URLs", ( patterns ) => {
         return patterns.split( '|' )
         } )
+    .option( '-r, --rmdir', 'delete destination directory before processing the source' )
     .parse( process.argv )
 
     log( command.opts() )
