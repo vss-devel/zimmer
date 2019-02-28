@@ -201,12 +201,18 @@ function mimeFromData ( data ) {
 
 function writeUIntLE( buf, value, offset, byteLength ) {
     if ( byteLength == 8 ) {
-        var low = (( value & 0xffffffff ) >>> 1 ) * 2 + ( value & 0x1 ) // unsigned
-        var high = ( value - low ) / 0x100000000
-        buf.writeUInt32LE( low, offset )
-        buf.writeUInt32LE( high, offset + 4 )
+        try {
+            value = BigInt( value )
+        } catch ( err ) {
+            log( err )
+        }
+        var low = value & 0xffffffffn 
+        var high = ( value - low ) / 0x100000000n 
+        buf.writeUInt32LE( Number( low ), offset )
+        buf.writeUInt32LE( Number( high ), offset + 4 )
         return offset + byteLength
     } else {
+        value = Number( value )
         return buf.writeUIntLE( value, offset, byteLength )
     }
 }
@@ -309,7 +315,7 @@ function cvsReader ( path, options ) {
 //
 class Writer {
     constructor ( path ) {
-        this.position = 0
+        this.position = BigInt( 0 )
         this.stream = fs.createWriteStream( path, { highWaterMark: 1024*1024*10 })
         this.stream.once( 'open', fd => { })
         this.stream.on( 'error', err => {
@@ -328,7 +334,7 @@ class Writer {
     async write ( data ) {
         const token = await this.queue.acquire()
         const startPosition =  this.position
-        this.position += data.length
+        this.position += BigInt( data.length )
 
         const saturated = ! this.stream.write( data )
         if ( saturated ) {
@@ -509,7 +515,7 @@ class ClusterPool {
         const byteLength = 8
         const count = header.clusterCount
         const start = await out.write( Buffer.alloc( 0 ))
-        let offset = start + count * byteLength
+        let offset = start + BigInt( count * byteLength )
         
         header.clusterPtrPos = await saveIndex ({
             query:`
@@ -524,7 +530,7 @@ class ClusterPool {
             logPrefix: 'storeClusterIndex',
             rowCb: ( row, index ) => {
                 const val = offset
-                offset += row.size
+                offset += BigInt( row.size )
                 return val
             },
         })
@@ -662,7 +668,7 @@ class Item {
                 'INSERT INTO dirEntries (id, offset) VALUES (?,?)',
                 [
                     id,
-                    this.dirEntryOffset,
+                    Number( this.dirEntryOffset ), // assume dir entries are written close to the beginning
                 ]
             )
         } catch ( err ) {
