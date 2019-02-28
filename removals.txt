@@ -1,3 +1,4 @@
+script,
 #toc,
 .article-status,
 .thumbcaption .magnify,
