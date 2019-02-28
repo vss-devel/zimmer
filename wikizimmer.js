@@ -718,7 +718,7 @@ class Redirect extends ArticleStub {
     }
 }
 
-class Metadata extends WikiItem {
+class WikiMetadata extends WikiItem {
     constructor ( url, data ) {
         super( 'M', url)
         this.mimeType = 'text/plain'
@@ -729,7 +729,7 @@ class Metadata extends WikiItem {
     }
 }
 
-class MainPage extends Metadata {
+class MainPage extends WikiMetadata {
     constructor ( ) {
         super( 'mainpage' )
     }
@@ -992,7 +992,7 @@ async function getSiteInfo () {
     wiki.nameSpaces = new NameSpaceSet( info )
 }
 
-async function saveMetadata () {
+async function saveWikiMetadata () {
 
     // Name         yes     A human readable identifier for the resource. It's the same across versions (should be stable across time). MUST be prefixed by the packager name.  kiwix.wikipedia_en.nopics
     // Title        yes     title of zim file   English Wikipedia
@@ -1032,7 +1032,7 @@ async function saveMetadata () {
     await new FavIcon().save()
 
     for ( let i in metadata ) {
-        await new Metadata( i, metadata[i] ).save()
+        await new WikiMetadata( i, metadata[i] ).save()
     }
 }
 
@@ -1274,7 +1274,7 @@ async function core ( samplePage ) {
     await loadCss( sampleDom )
     await getSiteInfo()
     await getPages()
-    await saveMetadata()
+    await saveWikiMetadata()
     await saveMimeTypes()
     await closeMetadataStorage()
 
