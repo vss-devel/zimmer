@@ -11,7 +11,7 @@ The major point is that `wikizimmer.js` unlike to [mwoffliner](https://github.co
 The package is relatively easy to install and it can even process some wikis running rather old versions of the Mediawiki engine.
 
 ## Installation
-Requirement: `node` version >= 8.x.
+Requirement: `node` version >= 10.4.0
 
 ### With npm globally
 
