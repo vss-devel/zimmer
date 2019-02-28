@@ -201,19 +201,14 @@ function mimeFromData ( data ) {
 
 function writeUIntLE( buf, value, offset, byteLength ) {
     if ( byteLength == 8 ) {
-        try {
-            value = BigInt( value )
-        } catch ( err ) {
-            log( err )
-        }
+        value = BigInt( value )
         var low = value & 0xffffffffn 
         var high = ( value - low ) / 0x100000000n 
         buf.writeUInt32LE( Number( low ), offset )
         buf.writeUInt32LE( Number( high ), offset + 4 )
         return offset + byteLength
     } else {
-        value = Number( value )
-        return buf.writeUIntLE( value, offset, byteLength )
+        return buf.writeUIntLE( Number( value ), offset, byteLength )
     }
 }
 
