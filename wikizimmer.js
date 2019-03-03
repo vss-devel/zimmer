@@ -563,6 +563,7 @@ class Article extends ArticleStub {
 
     async preProcess( data ) {
         let src
+        let out
         try {
             src = cheerio.load( data )
         } catch ( e ) {
@@ -619,20 +620,25 @@ class Article extends ArticleStub {
 
             this.mimeType = 'text/html'
             this.encoding = 'utf-8'
-            const out = dom.html()
-            const minified = minify( out, {
+            out = dom.html()
+        } catch ( err ) {
+            log( err )
+            return data
+        }
+        try {
+            out = minify( out, {
                 collapseWhitespace: true,
                 conservativeCollapse: true,
                 decodeEntities: true,
                 sortAttributes: true,
                 sortClassName: true,
                 removeComments: true,
+                html5: false,
             })
-            return minified
         } catch ( err ) {
-            log( err )
-            return null
+            log( 'minify', err )
         }
+        return out
     }
 
     transformLink( elem ) {
@@ -971,14 +977,14 @@ async function processSamplePage ( samplePageUrl ) {
 async function loadPreRequisites () {
     const templatePath = command.template ? command.template : osPath.resolve( module.filename, '../stub.html' )
     wiki.pageTemplate = await fs.readFile ( templatePath, 'utf8' )
-   
+
     const removalsPath = osPath.resolve( module.filename, '../removals.txt' )
     wiki.pageRemovals = command.remove ? command.remove : await fs.readFile ( removalsPath, 'utf8' )
 
     const css = [ ]
-    if ( command.defaultStyle ) 
+    if ( command.defaultStyle )
         css.push( await fs.readFile( osPath.resolve( module.filename, '../stub.css' ), 'utf8' ))
-    if ( command.style ) 
+    if ( command.style )
         try { // assume that's a file name
             css.push( await fs.readFile( command.style , 'utf8' ))
         } catch ( err ) { // treat as a literal
