@@ -202,8 +202,8 @@ function mimeFromData ( data ) {
 function writeUIntLE( buf, value, offset, byteLength ) {
     if ( byteLength == 8 ) {
         value = BigInt( value )
-        var low = value & 0xffffffffn 
-        var high = ( value - low ) / 0x100000000n 
+        var low = value & 0xffffffffn
+        var high = ( value - low ) / 0x100000000n
         buf.writeUInt32LE( Number( low ), offset )
         buf.writeUInt32LE( Number( high ), offset + 4 )
         return offset + byteLength
@@ -221,7 +221,7 @@ function toBuffer( value, byteLength ) {
 function chunksToBuffer( list ) {
     const chunks = []
     for ( const item of list ) {
-        let buf 
+        let buf
         if ( Array.isArray( item )) {
              buf = toBuffer( ...item )
         } else {
@@ -418,7 +418,7 @@ class Cluster {
             data = await lzma.compress( data, 5 ) // 3 | lzma.PRESET_EXTREME )
             log( 'Cluster lzma compressed' )
         }
-        
+
         const compression = toBuffer( this.compressible ? 4 : 0, 1 )
 
         return Buffer.concat([ compression, data ])
@@ -511,13 +511,13 @@ class ClusterPool {
         const count = header.clusterCount
         const start = await out.write( Buffer.alloc( 0 ))
         let offset = start + BigInt( count * byteLength )
-        
+
         header.clusterPtrPos = await saveIndex ({
             query:`
-                SELECT 
-                    size 
-                FROM clusters 
-                ORDER BY id 
+                SELECT
+                    size
+                FROM clusters
+                ORDER BY id
                 ;`,
             rowField: 'size',
             byteLength,
@@ -1299,17 +1299,17 @@ async function saveIndex ( params ) {
 
 async function storeUrlIndex () {
     header.urlPtrPos = await saveIndex ({
-        query:
-            'SELECT ' +
-                'urlSorted.rowid, ' +
-                'id, ' +
-                'urlKey, ' +
-                'offset ' +
-            'FROM urlSorted ' +
-            'LEFT OUTER JOIN dirEntries ' +
-            'USING (id) ' +
-            'ORDER BY urlSorted.rowid ' +
-            ';',
+        query:`
+            SELECT
+                urlSorted.rowid,
+                id,
+                urlKey,
+                offset
+            FROM urlSorted
+            LEFT OUTER JOIN dirEntries
+            USING (id)
+            ORDER BY urlSorted.rowid
+            ;`,
         byteLength: 8,
         count: header.articleCount,
         logPrefix: 'storeUrlIndex',
@@ -1333,13 +1333,13 @@ async function storeUrlIndex () {
 async function storeTitleIndex () {
     header.titlePtrPos = await saveIndex ({
         query: `
-            SELECT 
-                titleKey, 
-                urlSorted.rowid - 1 AS articleNumber 
-            FROM urlSorted 
-            JOIN articles 
-            USING (id) 
-            ORDER BY titleKey 
+            SELECT
+                titleKey,
+                urlSorted.rowid - 1 AS articleNumber
+            FROM urlSorted
+            JOIN articles
+            USING (id)
+            ORDER BY titleKey
             ;`,
         byteLength: 4,
         count: header.articleCount,
@@ -1397,7 +1397,7 @@ function getHeader () {
 
         [ header.checksumPos,    8 ],
     ]
-    
+
     return chunksToBuffer( chunks )
 }
 
