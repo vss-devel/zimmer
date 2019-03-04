@@ -609,9 +609,11 @@ class Article extends ArticleStub {
                 this.transformLink( elem )
             })
             // map area links
-            dom( 'area' ).each( (i, elem) => {
-                this.transformLink( elem )
-            })
+            if ( dom( 'map' ).length > 0 ) {
+                dom( 'area' ).each( (i, elem) => {
+                    this.transformLink( elem )
+                })
+            }
 
             let done = dom( 'img' ).toArray().map( elem => this.saveImage( elem ))
             done = done.concat( dom( '[style*="url("]' ).toArray().map( elem => this.transformStyle( elem )))
@@ -625,18 +627,19 @@ class Article extends ArticleStub {
             log( err )
             return data
         }
-        try {
-            out = minify( out, {
-                collapseWhitespace: true,
-                conservativeCollapse: true,
-                decodeEntities: true,
-                sortAttributes: true,
-                sortClassName: true,
-                removeComments: true,
-                html5: false,
-            })
-        } catch ( err ) {
-            log( 'minify', err )
+        if ( command.minify ) {
+            try {
+                out = minify( out, {
+                    collapseWhitespace: true,
+                    conservativeCollapse: true,
+                    decodeEntities: true,
+                    sortAttributes: true,
+                    sortClassName: true,
+                    removeComments: true,
+                })
+            } catch ( err ) {
+                log( 'minify', err )
+            }
         }
         return out
     }
@@ -1318,6 +1321,7 @@ function main () {
     .option( '--template [file]', 'non-standard article template' )
     .option( '--style [file or CSS]', 'additional article CSS style' )
     .option( '--no-default-style', "don't use default CSS style" )
+    .option( '--no-minify', "don't minify articles" )
     .option( '--no-images', "don't download images" )
     .option( '--no-css', "don't page styling" )
     .option( '--no-pages', "don't save downloaded pages" )
