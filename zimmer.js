@@ -319,8 +319,8 @@ class Writer {
 
         this.queue = genericPool.createPool(
             {
-                create () { return Promise.resolve( Symbol() ) },
-                destroy ( resource ) { return Promise.resolve() },
+                async create () { return Symbol() },
+                async destroy ( resource ) { return true },
             },
             {}
         )
@@ -434,8 +434,8 @@ class ClusterPool {
         this.savePrefix = outPath + '.tmp'
         this.pool = genericPool.createPool(
             {
-                create () { return Promise.resolve( Symbol() ) },
-                destroy ( resource ) { return Promise.resolve() },
+                async create () { return Symbol() },
+                async destroy ( resource ) { return true },
             },
             { max: 8, }
         )
@@ -594,10 +594,10 @@ class Item {
         return mimeTypeIndex( this.mimeType )
     }
 
-    getId () {
+    async getId () {
         if ( ! this.id )
             this.id = this.saveItemIndex()
-        return Promise.resolve( this.id )
+        return await this.id
     }
 
     async saveItemIndex () {
@@ -826,8 +826,8 @@ class DataItem extends Item {
         Object.assign( this, { clusterIdx, blobIdx })
     }
 
-    getData () {
-        return Promise.resolve( this.data )
+    async getData () {
+        return await this.data
     }
 
     storeDirEntry () {
