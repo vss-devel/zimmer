@@ -652,7 +652,7 @@ class Item {
 
         this.dirEntryOffset = await out.write( chunksToBuffer( chunks ))
         log( 'storeDirEntry done', this.dirEntryOffset, this.path )
-        return this.saveDirEntryIndex()
+        return await this.saveDirEntryIndex()
     }
 
     async saveDirEntryIndex ( ) {
@@ -663,7 +663,7 @@ class Item {
                 'INSERT INTO dirEntries (id, offset) VALUES (?,?)',
                 [
                     id,
-                    Number( this.dirEntryOffset ), // assume dir entries are written close to the beginning
+                    this.dirEntryOffset.toString(), // BigInt -> String
                 ]
             )
         } catch ( err ) {
@@ -673,17 +673,18 @@ class Item {
 }
 
 //
-// class Linktarget
+// class LinkTarget
 //
-class Linktarget extends Item {
-    constructor ( path, nameSpace, title ) {
+class LinkTarget extends Item {
+    constructor ( id, path, nameSpace, title ) {
         super({
+            id,
             path,
             nameSpace,
             title,
             mimeType: LINKTARGET_MIME,
         })
-        log( 'Linktarget', nameSpace, path, this )
+        log( 'LinkTarget', nameSpace, path, this )
     }
 
     storeDirEntry () {
@@ -694,15 +695,19 @@ class Linktarget extends Item {
 //
 // class DeletedEntry
 //
-class DeletedEntry extends Linktarget {
-    constructor ( path, nameSpace, title ) {
+class DeletedEntry extends Item {
+    constructor ( id, path, nameSpace, title ) {
         super({
+            id,
             path,
             nameSpace,
             title,
             mimeType: DELETEDENTRY_MIME,
         })
         log( 'DeletedEntry', nameSpace, path, this )
+    }
+    storeDirEntry () {
+        return super.storeDirEntry( 0, 0 )
     }
 }
 
@@ -1245,17 +1250,18 @@ async function resolveRedirects () {
         ) AS dstResolved
         JOIN articles AS src
         USING (id)
-        WHERE targetId IS NOT NULL
+        -- WHERE targetId IS NOT NULL
         ;`)
     let row
     while ( row = await stmt.get() ) {
-        var nameSpace = row.urlKey[ 0 ]
-        var path = row.urlKey.substr( 1 )
-        var title = ( row.titleKey == row.urlKey ) ? '' : row.titleKey.substr( 1 )
-        var target = row.targetRow - 1
-
-        await new ResolvedRedirect ( row.id, nameSpace, path, title, target, row.revision )
-        .process()
+        const nameSpace = row.urlKey[ 0 ]
+        const path = row.urlKey.substr( 1 )
+        const title = ( row.titleKey == row.urlKey ) ? '' : row.titleKey.substr( 1 )
+        if ( row.targetRow == null ) { // unresolved redirect
+            await new DeletedEntry( row.id, path, nameSpace, title ).process() // Linktarget
+        } else {
+            await new ResolvedRedirect ( row.id, nameSpace, path, title, row.targetRow - 1, row.revision ).process()
+        }
     }
     return stmt.finalize()
 }
@@ -1310,7 +1316,7 @@ async function storeUrlIndex () {
         rowCb: ( row, index ) => {
             if ( row.urlKey == mainPage.urlKey )
                 mainPage.index = index
-            return row.offset
+            return BigInt( row.offset )
         }
     })
 }
