@@ -719,7 +719,7 @@ class Redirect extends ArticleStub {
             this.toFragment,
         ]
 
-        log( '>', this.title || this.url, row)
+        log( 'r', this.title || this.url, row)
 
         return wiki.db.run(
             'INSERT INTO redirects (id, targetKey, fragment) VALUES (?,?,?)',
@@ -1226,37 +1226,36 @@ async function initWikiDb () {
     } catch (err) {
     }
     wiki.db = await sqlite.open( dbName )
-    return await wiki.db.exec(
-        'PRAGMA synchronous = OFF;' +
-        //~ 'PRAGMA journal_mode = OFF;' +
-        'PRAGMA journal_mode = WAL;' +
+    return await wiki.db.exec(`
+        PRAGMA synchronous = OFF;
+        -- PRAGMA journal_mode = OFF;
+        PRAGMA journal_mode = WAL;
 
-        'BEGIN;' +
+        BEGIN;
 
-        'CREATE TABLE articles (' + [
-                'id INTEGER PRIMARY KEY',
-                'mimeId INTEGER',
-                'revision INTEGER',
-                'urlKey TEXT UNIQUE',
-                'titleKey TEXT',
-                ].join(',') +
-            ');' +
-        'CREATE TABLE redirects (' +
-            'id INTEGER PRIMARY KEY,' +
-            'targetKey TEXT, ' +
-            'fragment TEXT ' +
-            ');' +
-        'CREATE TABLE mimeTypes (' +
-            'id INTEGER PRIMARY KEY,' +
-            'value TEXT' +
-            ');' +
-        'CREATE TABLE continue (' +
-            'id INTEGER PRIMARY KEY,' +
-            '"from" TEXT' +
-            ');' +
+        CREATE TABLE articles (
+            id INTEGER PRIMARY KEY,
+            mimeId INTEGER,
+            revision INTEGER,
+            urlKey TEXT UNIQUE,
+            titleKey TEXT
+            );
+        CREATE TABLE redirects (
+            id INTEGER PRIMARY KEY,
+            targetKey TEXT,
+            fragment TEXT
+            );
+        CREATE TABLE mimeTypes (
+            id INTEGER PRIMARY KEY,
+            value TEXT
+            );
+        CREATE TABLE continue (
+            id INTEGER PRIMARY KEY,
+            "from" TEXT
+            );
 
-        'COMMIT;' +
-        ''
+        COMMIT;
+        `
     )
 }
 
