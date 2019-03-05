@@ -1304,7 +1304,7 @@ async function storeUrlIndex () {
                 urlSorted.rowid,
                 id,
                 urlKey,
-                offset
+                CAST( offset AS TEXT ) AS offset -- to prevent casting to JS Number
             FROM urlSorted
             LEFT OUTER JOIN dirEntries
             USING (id)
