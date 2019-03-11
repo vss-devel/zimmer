@@ -454,21 +454,16 @@ class ClusterPool {
 
     async save ( cluster ) {
         const data = await cluster.getData()
-        let offset
-        if ( argv.zimlib4Fix ) { // zimlib4Fix stores clusters in separate files
+        const row = [ cluster.id ]
+        if ( ! argv.zimlib4Fix ) { 
+            const offset = await out.write( data )
+            row.push( offset.toString() ) // convert BigInt to String
+        } else { // zimlib4Fix stores clusters in separate files
             await fs.outputFile( osPath.join( this.savePrefix, `${cluster.id}` ), data )
-        } else {
-            offset = await out.write( data )
+            row.push( data.length ) // cluster sizes instead of offsets
         }
-        await wikiDb.run(
-            'INSERT INTO clusters ( id, offset ) VALUES ( ?,? )',
-            [
-                cluster.id,
-                ( argv.zimlib4Fix ? data.length : offset ).toString() // zimlib4Fix stores cluster sizes instead of offsets
-            ]
-        )
-        log( 'Cluster saved', cluster.id, data.length )
-        return
+        await wikiDb.run( 'INSERT INTO clusters ( id, offset ) VALUES ( ?,? )', row )
+        log( 'Cluster saved', row )
     }
 
     async append ( mimeType, data, path /* for debugging */ ) {
@@ -513,8 +508,17 @@ class ClusterPool {
 
     async storeIndex () {
         const byteLength = 8
-        const count = header.clusterCount
-        let offsetZimlib4 = await out.write( Buffer.alloc( 0 )) + BigInt( count * byteLength ) // zimlib4Fix
+        const count = header.clusterCount        
+        let rowCb = ( row, index ) => BigInt( row.offset )
+        
+        if ( argv.zimlib4Fix ) {
+            let offsetZimlib4 = await out.write( Buffer.alloc( 0 )) + BigInt( count * byteLength )                
+            rowCb = ( row, index ) => { 
+                    const val = offsetZimlib4
+                    offsetZimlib4 += BigInt( row.offset )
+                    return val
+                }
+        }
 
         header.clusterPtrPos = await saveIndex ({
             query:`
@@ -523,20 +527,10 @@ class ClusterPool {
                 FROM clusters
                 ORDER BY id
                 ;`,
-            rowField: 'size',
             byteLength,
             count,
             logPrefix: 'storeClusterIndex',
-            rowCb: ( row, index ) => {
-                const offset = BigInt( row.offset )
-                if ( ! argv.zimlib4Fix ) { 
-                    return offset
-                } else { // zimlib4Fix stores cluster sizes instead of offsets
-                    const val = offsetZimlib4
-                    offsetZimlib4 += offset
-                    return val
-                }
-            },
+            rowCb,
         })
     }
 
