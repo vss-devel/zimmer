@@ -454,12 +454,17 @@ class ClusterPool {
 
     async save ( cluster ) {
         const data = await cluster.getData()
-        await fs.outputFile( osPath.join( this.savePrefix, `${cluster.id}` ), data )
+        let offset
+        if ( argv.zimlib4Fix ) { // zimlib4Fix stores clusters in separate files
+            await fs.outputFile( osPath.join( this.savePrefix, `${cluster.id}` ), data )
+        } else {
+            offset = await out.write( data )
+        }
         await wikiDb.run(
-            'INSERT INTO clusters ( id, size ) VALUES ( ?,? )',
+            'INSERT INTO clusters ( id, offset ) VALUES ( ?,? )',
             [
                 cluster.id,
-                data.length
+                ( argv.zimlib4Fix ? data.length : offset ).toString() // zimlib4Fix stores cluster sizes instead of offsets
             ]
         )
         log( 'Cluster saved', cluster.id, data.length )
@@ -509,13 +514,12 @@ class ClusterPool {
     async storeIndex () {
         const byteLength = 8
         const count = header.clusterCount
-        const start = await out.write( Buffer.alloc( 0 ))
-        let offset = start + BigInt( count * byteLength )
+        let offsetZimlib4 = await out.write( Buffer.alloc( 0 )) + BigInt( count * byteLength ) // zimlib4Fix
 
         header.clusterPtrPos = await saveIndex ({
             query:`
                 SELECT
-                    size
+                    CAST( offset AS TEXT ) AS offset -- to prevent casting to JS Number
                 FROM clusters
                 ORDER BY id
                 ;`,
@@ -524,22 +528,29 @@ class ClusterPool {
             count,
             logPrefix: 'storeClusterIndex',
             rowCb: ( row, index ) => {
-                const val = offset
-                offset += BigInt( row.size )
-                return val
+                const offset = BigInt( row.offset )
+                if ( ! argv.zimlib4Fix ) { 
+                    return offset
+                } else { // zimlib4Fix stores cluster sizes instead of offsets
+                    const val = offsetZimlib4
+                    offsetZimlib4 += offset
+                    return val
+                }
             },
         })
     }
 
     async storeClusters () {
-        for ( let i = 0; i < header.clusterCount; i++ ) {
-            const fname = osPath.join( this.savePrefix, `${i}` )
-            const data = await fs.readFile( fname )
-            const pos = await out.write( data )
-            log( 'storeClusters', i, pos )
-            await fs.remove( fname )
+        if ( argv.zimlib4Fix ) { // zimlib4Fix stores clusters in separate files
+            for ( let i = 0; i < header.clusterCount; i++ ) {
+                const fname = osPath.join( this.savePrefix, `${i}` )
+                const data = await fs.readFile( fname )
+                const pos = await out.write( data )
+                log( 'storeClusters', i, pos )
+                await fs.remove( fname )
+            }
+            await fs.remove( this.savePrefix )
         }
-        await fs.remove( this.savePrefix )
     }
 
     async finish () {
@@ -1136,7 +1147,7 @@ async function openWikiDb( dbName ) {
             );
         CREATE TABLE clusters (
             id INTEGER PRIMARY KEY,
-            size INTEGER
+            offset INTEGER
             );
         `
     )
@@ -1608,6 +1619,7 @@ async function main () {
     //~ .option( '-i, --withFullTextIndex', 'index the content and add it to the ZIM' )
     // Extra arguments:
     .option( '--optimg', 'optimise images' )
+    .option( '-4, --no-zimlib4-fix', 'no zimlib v4.0.4 compatibility mode' )
     .option( '--jpegquality <factor>', 'JPEG quality', parseInt, 60 )
     .option( '--no-compress', "do not compress clusters" )
     .parse( osProcess.argv )
