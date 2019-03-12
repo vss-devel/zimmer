@@ -1,8 +1,8 @@
-***zimmer*** is a package for creating a [ZIM](http://www.openzim.org/wiki/OpenZIM) files from a Mediawiki-powered wiki.
+***zimmer*** is a package for creating [ZIM](http://www.openzim.org/wiki/OpenZIM) files from a Mediawiki-powered wikis.
 
 The package consists of 2 scripts:
 
-- wikizimmer.js — dumps the wiki's articles (name space 0) into a collection of static HTML files.
+- wikizimmer.js — dumps the wiki's articles into a collection of static HTML files.
 
 - zimmer.js — builds a ZIM file from a static HTML files collection. Historically, zimmer.js is mostly a drop-in replacement for [zimwriterfs](https://github.com/wikimedia/openzim/tree/master/zimwriterfs) with a notable exception: it doesn't support *withFullTextIndex* option (index format is [not documented](http://www.openzim.org/wiki/ZIM_Index_Format)).
 
@@ -43,7 +43,7 @@ Example:
 
 `wikizimmer https://en.wikivoyage.org/wiki/Pisa`
 
- will dump ***all*** `https://en.wikivoyage.org` articles to the directory `en.wikivoyage.org`. The URL to a particular page is quite important in this case as this page's styling is used as a template for all other pages in the dump, so wikivoyage listings, for example, are rendered correctly at the static page of the dump.
+ will dump all articles from the main name space (aka 0 or '') at the `https://en.wikivoyage.org` to the directory `en.wikivoyage.org`. The URL to a particular page is quite important in this case as this page's styling is used as a template for all other pages in the dump, so wikivoyage listings, for example, are rendered correctly at the static page of the dump.
 
 * Building a ZIM file:
 
