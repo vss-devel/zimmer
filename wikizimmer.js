@@ -72,8 +72,11 @@ let http // http request
 let sanitizeRE = /(?:[\x00-\x1F<>:"~\\\?\*]|%(?:[^0-9A-Fa-f]|[0-9A-Fa-f][^0-9A-Fa-f])|(?:[. ]$))+/g
 
 function sanitizeFN ( name ) { // after https://github.com/pillarjs/encodeurl
-    return String( name ).replace( sanitizeRE, encodeURIComponent ).replace( /%/g, '~' )
-    //~ return sanitizeFilename( name, { replacement: '.' })
+    if ( os.type() == 'Windows_NT' ) {
+		return String( name ).replace( sanitizeRE, encodeURIComponent ).replace( /%/g, '~' )
+	} else {
+		return name
+	}
 }
 
 function elapsedStr( from , to = Date.now()) {
