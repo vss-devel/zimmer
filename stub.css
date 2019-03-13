@@ -5,6 +5,10 @@
  */
 body#zim {
     font-size: 100%;
+	width: inherit;
+	padding: inherit;    
+	position: inherit;
+	margin: inherit;
 /*    background-image: none;*/
 }
 #zim #content {
@@ -49,4 +53,17 @@ body#zim {
 }
 #zim #mw-customtoggle-mapToggle {
     display: none;
+}
+
+/* Wikia */
+body#zim .WikiaMainContent {
+    width: inherit;
+}
+body#zim .WikiaPageBackground {
+    width: inherit;
+    height: inherit;
+    position: inherit;
+    left: inherit;
+    top: inherit;
+
 }
