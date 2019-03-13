@@ -437,8 +437,9 @@ class WikiItem {
         return  this.zimNameSpace + '/' + this.basePath()
     }
 
-    pathToTop () {
-        return '../'.repeat( this.basePath().split( '/' ).length - 1 )
+    relativePath ( path ) {
+		const toTop = '../'.repeat( this.basePath().split( '/' ).length - 1 )
+        return ( toTop.length > 0 ? toTop : './' ) + path
     }
 
     urlKey () {
@@ -602,7 +603,7 @@ class Article extends ArticleStub {
 
             // modify links
             let css = dom( '#layout-css' )
-            css.attr( 'href', this.pathToTop() + css.attr( 'href' ))
+            css.attr( 'href', this.relativePath( css.attr( 'href' )))
 
             dom( 'a' ).each( (i, elem) => {
                 this.transformGeoLink( elem ) ||
@@ -661,7 +662,7 @@ class Article extends ArticleStub {
             if ( ! wiki.nameSpaces.toBeDownloaded( title )) {
                 delete elem.attribs.href // block other name spaces
             } else {
-                elem.attribs.href = ( this.pathToTop() + basePath )
+                elem.attribs.href = ( this.relativePath( basePath ))
             }
         } else {
             const pathlc = path.toLowerCase()
@@ -695,7 +696,7 @@ class Article extends ArticleStub {
             return
         const image = new Image( url )
         const localPath = await image.save()
-        elem.attribs.src = encodeURI( this.pathToTop() + '../' + localPath )
+        elem.attribs.src = encodeURI( this.relativePath( '../' + localPath ))
     }
 }
 
@@ -894,7 +895,7 @@ class Style extends LayoutItem {
             let out = match
             const rurl = resolvedUrls.shift()
             if ( rurl != null ) {
-                let newUrl = this.pathToTop() + '../' + rurl
+                let newUrl = this.relativePath( '../' + rurl )
                 out = start + newUrl + end
             } else {
                 out = ''
