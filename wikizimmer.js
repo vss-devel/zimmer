@@ -575,15 +575,7 @@ class Article extends ArticleStub {
             return data
         }
         try {
-            let content = []
-            if ( command.content ) {
-                content =  src( command.content )
-            } else {
-                content = src( '#bodyContent' )
-                if ( content.length == 0 ) {
-                    content = src( 'article' ) //wikia
-                }
-            }
+            const content =  src( wiki.contentSelector )
             if ( content.length == 0 ) {
                 fatal( "Article.preProcess -- fatal error: Can't find article's content:", this.title )
             }
@@ -591,7 +583,7 @@ class Article extends ArticleStub {
             const dom = cheerio.load( wiki.pageTemplate )
             dom( 'title' ).text( this.title )
 
-            dom( '#bodyContent' ).replaceWith( content )
+            dom( '#bodyContent' ).replaceWith( content[ 0 ] )
 
             // display content inside <noscript> tags
             dom( 'noscript' ).each( (i, elem) => {
@@ -600,7 +592,7 @@ class Article extends ArticleStub {
             })
 
             // clean up
-            dom( wiki.pageRemovals ).each( (i, elem) => {
+            dom( wiki.removeSelector ).each( (i, elem) => {
                 dom( elem ).remove()
             })
 
@@ -985,8 +977,11 @@ async function loadPreRequisites () {
     const templatePath = command.template ? command.template : osPath.resolve( module.filename, '../stub.html' )
     wiki.pageTemplate = await fs.readFile ( templatePath, 'utf8' )
 
-    const removalsPath = osPath.resolve( module.filename, '../removals.txt' )
-    wiki.pageRemovals = command.remove ? command.remove : await fs.readFile ( removalsPath, 'utf8' )
+    const remPath = osPath.resolve( module.filename, '../remove.select' )
+    wiki.removeSelector = command.remove ? command.remove : await fs.readFile ( remPath, 'utf8' )
+
+    const contPath = osPath.resolve( module.filename, '../content.select' )
+    wiki.contentSelector = command.content ? command.content : await fs.readFile ( contPath, 'utf8' )
 
     const css = [ ]
     if ( command.defaultStyle )
