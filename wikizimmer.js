@@ -933,10 +933,10 @@ class GlobalCss extends LayoutItem {
         const data = await css.getData()
 
         const outcss = `/*
-*
-* from ${cssUrl}
-*
-*/
+ *
+ * from ${cssUrl}
+ *
+ */
 ${data}
 `
         return outcss
