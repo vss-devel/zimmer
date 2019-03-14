@@ -1,4 +1,4 @@
-***zimmer*** is a package for creating [ZIM](http://www.openzim.org/wiki/OpenZIM) files from a Mediawiki-powered wikis.
+***zimmer*** is a package for creating [ZIM](http://www.openzim.org/wiki/OpenZIM) files from Mediawiki-powered wikis.
 
 The package consists of 2 scripts:
 
@@ -39,7 +39,7 @@ The process of creating a ZIM file from a wiki consists of 2 parts.
 
 Example:
 
-* Dumping a with to a local collection of static HTML files:
+* Dumping a wiki to a local collection of static HTML files:
 
 `wikizimmer https://en.wikivoyage.org/wiki/Pisa`
 
