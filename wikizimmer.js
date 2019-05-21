@@ -106,7 +106,7 @@ function mimeFromData ( data ) {
     )
 }
 
-let UserAgent = `wikizimmer/${packageInfo.version} (https://github.com/vadp/zimmer email:vadp.devl@gmail.com)`
+let UserAgent = `wikizimmer/${packageInfo.version} (https://github.com/vss-devel/zimmer)`
 const UserAgentFirefox = 'Mozilla/5.0 (X11; Linux x86_64; rv:12.0) Gecko/20100101 Firefox/12.0'
 
 function pooledRequest( request, referenceUri, maxTokens = 1, interval = 10 ) {
