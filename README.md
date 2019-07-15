@@ -47,12 +47,13 @@ Example:
 
 will dump all articles from the main name space (aka 0 or '') at the `https://en.wikivoyage.org` to the directory `en.wikivoyage.org`. The URL to a particular page is quite important in this case as this page's styling is used as a template for all other pages in the dump, so wikivoyage listings, for example, are rendered correctly at the static page of the dump.
 
-**NB**: To dump a HTTPS server with a self-signed certificate you need to set an environment variable: `NODE_TLS_REJECT_UNAUTHORIZED=0`
-
 * Building a ZIM file:
 
 `zimmer --optimg en.wikivoyage.org`
 
 will pack the content of the `en.wikivoyage.org` into the `en.wikivoyage.org.zim`. zimmer.js with `--optimg` option will recompress the images in the dump to save some space.
 
-**NB:** The most options of the zimmer.js are optional as it fetches the relevant metadata from the dump created by wikizimmer.js. Perhaps only `--optimg` option is rather important if you want to save some space.
+**Notes**: 
+* wikizimmer.js requires a public access to the wiki's API interface.
+* To dump a HTTPS server with a self-signed certificate you need to set an environment variable: `NODE_TLS_REJECT_UNAUTHORIZED=0`
+* The most options of the zimmer.js are optional as it fetches the relevant metadata from the dump created by wikizimmer.js. Perhaps only `--optimg` option is rather important if you want to save some space.
