@@ -996,15 +996,19 @@ async function loadPreRequisites () {
 }
 
 async function getSiteInfo () {
-    const resp = await api ({
-        action: 'query',
-        meta: 'siteinfo',
-        siprop: 'general|namespaces|namespacealiases',
-    })
+    try { 
+        const resp = await api ({
+            action: 'query',
+            meta: 'siteinfo',
+            siprop: 'general|namespaces|namespacealiases',
+        })
 
-    const info = resp.query
-    log( 'SiteInfo', info )
-    wiki.info = info
+        const info = resp.query
+        log( 'SiteInfo', info )
+        wiki.info = info
+    } catch ( err ) { 
+        fatal( 'SiteInfo error', err )
+    }
     wiki.indexUrl = info.general.script
     wiki.mainPage = info.general.mainpage
     wiki.articlePath = info.general.articlepath.split('$')[0]
