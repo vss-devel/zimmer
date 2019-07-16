@@ -742,25 +742,8 @@ class MainPage extends WikiMetadata {
     constructor ( ) {
         super( 'mainpage' )
     }
-    async getData  ( ) {
-        const reply = await apiPost({
-            action: 'query',
-            titles: wiki.mainPage,
-            redirects: '',
-            prop: 'info',
-            inprop: 'url',
-        })
-        try {
-            const to = Object.keys( reply.query.pages ).map( key => this.to = reply.query.pages[ key ])[0]
-            const target = new ArticleStub( to )
-
-            return target.basePath()
-        } catch ( err ) {
-            return null
-        }
-    }
     async save () {
-        const data = await this.getData()
+        const data = wiki.mainPage
         await this.storeData( data )
         return this.localPath()
     }

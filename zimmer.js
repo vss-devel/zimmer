@@ -1319,8 +1319,6 @@ async function storeUrlIndex () {
         count: header.articleCount,
         logPrefix: 'storeUrlIndex',
         rowCb: ( row, index ) => {
-            if ( row.urlKey == mainPage.urlKey )
-                mainPage.index = index
             return BigInt( row.offset )
         }
     })
@@ -1350,6 +1348,8 @@ async function storeTitleIndex () {
         count: header.articleCount,
         logPrefix: 'storeTitleIndex',
         rowCb: ( row, index ) => {
+            if ( row.titleKey == mainPage.titleKey )
+                mainPage.index = row.articleNumber
             return row.articleNumber
         }
     })
@@ -1444,7 +1444,7 @@ async function initialise () {
     if ( await fs.exists( dbPath )) {
         preProcessed = true
         try {
-            mainPage.urlKey = 'A' + ( await fs.readFile( osPath.join( srcPath, 'M', 'mainpage' ))).toString()
+            mainPage.titleKey = 'A' + ( await fs.readFile( osPath.join( srcPath, 'M', 'mainpage' ))).toString()
         } catch ( err ) {
             warning( 'mainpage error', err )
         }
