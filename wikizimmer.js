@@ -1289,23 +1289,25 @@ async function core ( samplePage ) {
         UserAgent = command.userAgent == 'firefox' ? UserAgentFirefox : command.userAgent
     }
     log( 'UserAgent', UserAgent )
+    try {
+        await loadPreRequisites( )
 
-    await loadPreRequisites( )
+        const sampleDom = await processSamplePage( samplePage, command.rmdir )
 
-    const sampleDom = await processSamplePage( samplePage, command.rmdir )
+        const oldDir = await initDir()
 
-    const oldDir = await initDir()
+        await initWikiDb()
+        await loadCss( sampleDom )
+        await getSiteInfo()
+        await getPages()
+        await saveWikiMetadata()
+        await saveMimeTypes()
+        await closeMetadataStorage()
 
-    await initWikiDb()
-    await loadCss( sampleDom )
-    await getSiteInfo()
-    await getPages()
-    await saveWikiMetadata()
-    await saveMimeTypes()
-    await closeMetadataStorage()
-
-    await oldDir.done
-    //~ .catch( err => log( err )) // handleError
+        await oldDir.done
+    } catch ( err ) {
+        fatal( 'core', err ) // handleError
+    }
 }
 
 function main () {
