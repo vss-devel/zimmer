@@ -1589,7 +1589,7 @@ async function main () {
 
     argv
     .version( packageInfo.version )
-    .arguments( '<source-directory> [zim-file...]' )
+    .arguments( '<source-directory> [<output-file>]' )
     .description( `Pack a directory into a zim file
 
   Where:

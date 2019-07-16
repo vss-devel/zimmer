@@ -918,9 +918,9 @@ ${data}
     }
 }
 
-async function processSamplePage ( samplePageUrl ) {
+async function processSamplePage ( sampleURLUrl ) {
     const resp = await requestPromise({
-        url: encodeurl( samplePageUrl ),
+        url: encodeurl( sampleURLUrl ),
         resolveWithFullResponse: true,
     })
     //~log(resp)
@@ -928,9 +928,6 @@ async function processSamplePage ( samplePageUrl ) {
     // set base for further http requests
     const realUrl = resp.request.href
     http = pooledRequest( requestPromise, realUrl )
-
-    const purl = urlconv.parse( realUrl )
-    wiki.saveDir = sanitizeFN( purl.hostname )
 
     const dom = cheerio.load( resp.body )
 
@@ -1253,32 +1250,35 @@ function closeMetadataStorage () {
     return wiki.db.close()
 }
 
-async function initDir ( ) {
-    let oldDir
+async function initDir ( sampleURL, outPath ) {
+    const purl = urlconv.parse( sampleURL )
+
+    wiki.saveDir =  outPath || sanitizeFN( purl.hostname )
+
+    let done = true
     if ( command.rmdir ) {
-        oldDir = wiki.saveDir + '$'
+        const oldDir = wiki.saveDir + '$'
         try {
             await fs.move( wiki.saveDir, oldDir, { overwrite: true })
         } catch ( err ) {
-            log( err )
+            log( 'initDir', err )
         }
+        done = fs.remove( oldDir )
     }
     await fs.mkdirs( wiki.saveDir )
-    return { done: command.rmdir ? fs.remove( oldDir ) : true }
+    return { done }
 }
 
-async function core ( samplePage ) {
+async function core ( sampleURL, outPath ) {
     if ( command.userAgent ) {
         UserAgent = command.userAgent == 'firefox' ? UserAgentFirefox : command.userAgent
     }
     log( 'UserAgent', UserAgent )
     try {
-        await loadPreRequisites( )
+        const oldDir = await initDir( sampleURL, outPath )
 
-        const sampleDom = await processSamplePage( samplePage, command.rmdir )
-
-        const oldDir = await initDir()
-
+        await loadPreRequisites()
+        const sampleDom = await processSamplePage( sampleURL )
         await initWikiDb()
         await loadCss( sampleDom )
         await getSiteInfo()
@@ -1296,7 +1296,7 @@ async function core ( samplePage ) {
 function main () {
     command
     .version( packageInfo.version )
-    .arguments( '<wiki-page-URL>' )
+    .arguments( '<wiki-page-URL> [<output-path>]' )
     .description( `Dump a static-HTML snapshot of a MediaWiki-powered wiki.
 
   Where:
@@ -1329,7 +1329,7 @@ function main () {
 
     log( command.opts() )
 
-    core( command.args[0] )
+    core( ... command.args )
 }
 
 main ()
