@@ -36,7 +36,7 @@ const osProcess = require( 'process' )
 const url = require( 'url' )
 const crypto = require( "crypto" )
 
-const argv = require('commander')
+const command = require('commander')
 const fs = require( 'fs-extra' )
 const expandHomeDir = require( 'expand-home-dir' )
 const lzma = require( 'lzma-native' )
@@ -161,7 +161,7 @@ function mimeTypeIndex ( mimeType ) {
 }
 
 function getNameSpace ( mimeType ) {
-    if ( argv.uniqueNamespace )
+    if ( command.uniqueNamespace )
         return 'A'
     if ( !mimeType )
         return null
@@ -455,7 +455,7 @@ class ClusterPool {
     async save ( cluster ) {
         const data = await cluster.getData()
         const row = [ cluster.id ]
-        if ( ! argv.zimlib4Fix ) { 
+        if ( ! command.zimlib4Fix ) { 
             const offset = await out.write( data )
             row.push( offset.toString() ) // convert BigInt to String
         } else { // zimlib4Fix stores clusters in separate files
@@ -487,7 +487,7 @@ class ClusterPool {
     }
 
     isCompressible ( mimeType, data, id ) {
-        if ( ! argv.compress )
+        if ( ! command.compress )
             return false
         if ( data == null || data.length == 0 )
             return false
@@ -511,7 +511,7 @@ class ClusterPool {
         const count = header.clusterCount        
         let rowCb = ( row, index ) => BigInt( row.offset )
         
-        if ( argv.zimlib4Fix ) {
+        if ( command.zimlib4Fix ) {
             let offsetZimlib4 = await out.write( Buffer.alloc( 0 )) + BigInt( count * byteLength )                
             rowCb = ( row, index ) => { 
                     const val = offsetZimlib4
@@ -535,7 +535,7 @@ class ClusterPool {
     }
 
     async storeClusters () {
-        if ( argv.zimlib4Fix ) { // zimlib4Fix stores clusters in separate files
+        if ( command.zimlib4Fix ) { // zimlib4Fix stores clusters in separate files
             for ( let i = 0; i < header.clusterCount; i++ ) {
                 const fname = osPath.join( this.savePrefix, `${i}` )
                 const data = await fs.readFile( fname )
@@ -874,13 +874,13 @@ class File extends DataItem {
     }
 
     async processJpeg ( data ) {
-        if ( ! argv.optimg )
+        if ( ! command.optimg )
             return data
         this.mimeType = 'image/jpeg'
         try {
             return await spawn(
                 mozjpeg,
-                [ '-quality', argv.jpegquality, data.length < 20000 ? '-baseline' : '-progressive' ],
+                [ '-quality', command.jpegquality, data.length < 20000 ? '-baseline' : '-progressive' ],
                 data
             )
         } catch ( err ) {
@@ -890,7 +890,7 @@ class File extends DataItem {
     }
 
     async processImage ( data ) {
-        if ( ! argv.optimg )
+        if ( ! command.optimg )
             return data
         try {
             const image = sharp( data )
@@ -953,7 +953,7 @@ class RawFile extends File {
             this.mimeType = await mimeFromData( data )
             this.nameSpace = this.nameSpace || getNameSpace( this.mimeType )
         }
-        if ( argv.inflateHtml && this.mimeType == 'text/html' ) {
+        if ( command.inflateHtml && this.mimeType == 'text/html' ) {
             data = await zlib.inflate( data ) // inflateData
         }
         await this.preProcessHtml( data )
@@ -1078,14 +1078,14 @@ function fillInMetadata () {
     const outParsed = osPath.parse( outPath )
     const metadata = [
         [ 'Name', outParsed.base ],
-        [ 'Title', argv.title ],
-        [ 'Creator', argv.creator ],
-        [ 'Publisher', argv.publisher ],
+        [ 'Title', command.title ],
+        [ 'Creator', command.creator ],
+        [ 'Publisher', command.publisher ],
         [ 'Date', new Date().toISOString().split( 'T' )[ 0 ]],
-        [ 'Description', argv.description ],
-        [ 'Language', argv.language ],
-        [ 'logo', argv.favicon ],
-        //~ [ 'mainpage', argv.welcome ],
+        [ 'Description', command.description ],
+        [ 'Language', command.language ],
+        [ 'logo', command.favicon ],
+        //~ [ 'mainpage', command.welcome ],
     ]
 
     const done = []
@@ -1149,7 +1149,7 @@ async function openWikiDb( dbName ) {
 
 async function newWikiDb() {
     var dbName = ''
-    if ( argv.verbose ) {
+    if ( command.verbose ) {
         var parsed = osPath.parse( outPath )
         dbName = osPath.join( parsed.dir, parsed.base + '.db' )
     }
@@ -1209,8 +1209,8 @@ async function loadRedirects () {
     var redirectsFile
     if ( preProcessed )
         redirectsFile = osPath.join( srcPath, 'redirects.csv' )
-    else if ( argv.redirects )
-        redirectsFile = expandHomeDir( argv.redirects )
+    else if ( command.redirects )
+        redirectsFile = expandHomeDir( command.redirects )
     else
         return
 
@@ -1587,7 +1587,7 @@ async function core () {
 
 async function main () {
 
-    argv
+    command
     .version( packageInfo.version )
     .arguments( '<source-directory> [<output-file>]' )
     .description( `Pack a directory into a zim file
@@ -1618,9 +1618,9 @@ async function main () {
     .option( '--no-compress', "do not compress clusters" )
     .parse( osProcess.argv )
 
-    log( argv )
+    log( command )
 
-    const args = argv.args
+    const args = command.args
 
     while ( args[ 0 ] == '' ) // if mwoffliner prepends with empty extra parameter(s)
         args.shift()
@@ -1633,8 +1633,8 @@ async function main () {
         outPath = parsed.base + '.zim'
     }
 
-    //~ if ( argv.minChunkSize ) {
-        //~ ClusterSizeThreshold = argv.minChunkSize * 1024
+    //~ if ( command.minChunkSize ) {
+        //~ ClusterSizeThreshold = command.minChunkSize * 1024
     //~ }
 
     await core ()

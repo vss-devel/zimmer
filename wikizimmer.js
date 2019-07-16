@@ -336,7 +336,7 @@ class NameSpaceSet {
 }
 
 const wiki = {
-    saveDir: null,
+    outPath: null,
     apiUrl: null,
     metadata: {},
     nameSpaces: null,
@@ -468,7 +468,7 @@ class WikiItem {
         if ( data == null )
             return
 
-        const savePath = osPath.join( wiki.saveDir, this.localPath())
+        const savePath = osPath.join( wiki.outPath, this.localPath())
         log( '+', savePath )
 
         return fs.outputFile( savePath, data )
@@ -918,9 +918,9 @@ ${data}
     }
 }
 
-async function processSamplePage ( sampleURLUrl ) {
+async function processSamplePage ( url ) {
     const resp = await requestPromise({
-        url: encodeurl( sampleURLUrl ),
+        url: encodeurl( url ),
         resolveWithFullResponse: true,
     })
     //~log(resp)
@@ -1206,7 +1206,7 @@ async function loadCss( dom ) {
 
 async function initWikiDb () {
 
-    let dbName = osPath.join( wiki.saveDir, 'metadata.db' )
+    let dbName = osPath.join( wiki.outPath, 'metadata.db' )
 
     try {
         await fs.unlink( dbName )
@@ -1250,22 +1250,20 @@ function closeMetadataStorage () {
     return wiki.db.close()
 }
 
-async function initDir ( sampleURL, outPath ) {
-    const purl = urlconv.parse( sampleURL )
-
-    wiki.saveDir =  outPath || sanitizeFN( purl.hostname )
+async function initDir ( url, path ) {
+    wiki.outPath =  path || sanitizeFN( urlconv.parse( url ).hostname )
 
     let done = true
     if ( command.rmdir ) {
-        const oldDir = wiki.saveDir + '$'
+        const oldDir = wiki.outPath + '$'
         try {
-            await fs.move( wiki.saveDir, oldDir, { overwrite: true })
+            await fs.move( wiki.outPath, oldDir, { overwrite: true })
         } catch ( err ) {
             log( 'initDir', err )
         }
         done = fs.remove( oldDir )
     }
-    await fs.mkdirs( wiki.saveDir )
+    await fs.mkdirs( wiki.outPath )
     return { done }
 }
 
@@ -1277,9 +1275,9 @@ async function core ( sampleURL, outPath ) {
     try {
         const oldDir = await initDir( sampleURL, outPath )
 
+        await initWikiDb()
         await loadPreRequisites()
         const sampleDom = await processSamplePage( sampleURL )
-        await initWikiDb()
         await loadCss( sampleDom )
         await getSiteInfo()
         await getPages()
