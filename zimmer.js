@@ -1338,7 +1338,7 @@ async function storeTitleIndex () {
         query: `
             SELECT
                 titleKey,
-                urlSorted.rowid - 1 AS articleNumber
+                urlSorted.rowid - 1 AS urlIndex
             FROM urlSorted
             JOIN articles
             USING (id)
@@ -1349,8 +1349,8 @@ async function storeTitleIndex () {
         logPrefix: 'storeTitleIndex',
         rowCb: ( row, index ) => {
             if ( row.titleKey == mainPage.titleKey )
-                mainPage.index = row.articleNumber
-            return row.articleNumber
+                mainPage.index = row.urlIndex
+            return row.urlIndex
         }
     })
 }
