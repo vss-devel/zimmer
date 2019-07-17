@@ -73,8 +73,6 @@ var wikiDb
 var dirQueue
 var clusterWriter
 
-let preProcessed = false
-
 var mainPage = {}
 
 // -    layout, eg. the LayoutPage, CSS, favicon.png (48x48), JavaScript and images not related to the articles
@@ -1205,16 +1203,15 @@ function sortArticles () {
     )
 }
 
-async function loadRedirects () {
-    var redirectsFile
-    if ( preProcessed )
-        redirectsFile = osPath.join( srcPath, 'redirects.csv' )
-    else if ( command.redirects )
-        redirectsFile = expandHomeDir( command.redirects )
-    else
+async function csvRedirects () {
+    const csv = command.redirects ? 
+        expandHomeDir( command.redirects ) :
+        osPath.join( srcPath, 'redirects.csv' )
+
+    if ( ! await fs.exists( csv )) 
         return
 
-    const getRow = cvsReader( redirectsFile, {
+    const getRow = cvsReader( csv, {
         columns:[ 'nameSpace', 'path', 'title', 'to' ],
         delimiter: '\t',
         relax_column_count: true
@@ -1222,7 +1219,7 @@ async function loadRedirects () {
 
     let row
     while ( row = await getRow() ) {
-        log( 'loadRedirects', row )
+        log( 'csvRedirects', row )
         await new Redirect( row ).process()
     }
 }
@@ -1441,6 +1438,7 @@ async function initialise () {
     await out.write( Buffer.alloc( headerLength + maxMimeLength ))
 
     var dbPath = osPath.join( srcPath, 'metadata.db' )
+    let preProcessed = false
     if ( await fs.exists( dbPath )) {
         preProcessed = true
         try {
@@ -1449,11 +1447,12 @@ async function initialise () {
             warning( 'mainpage error', err )
         }
         await openWikiDb( dbPath )
-        return loadMimeTypes()
+        await loadMimeTypes()
     } else {
         await newWikiDb()
-        return fillInMetadata()
+        await fillInMetadata()
     }
+    return preProcessed
 }
 
 async function rawLoader () {
@@ -1538,7 +1537,7 @@ async function loadMimeTypes () {
 
 async function loadRawArticles () {
     await rawLoader()
-    return loadRedirects()
+    return csvRedirects()
 }
 
 async function postProcess () {
@@ -1558,7 +1557,7 @@ async function finalise () {
 }
 
 async function core () {
-    await initialise()
+    const preProcessed = await initialise()
     await ( preProcessed ? loadPreProcessedArticles() : loadRawArticles() )
     await postProcess()
     await finalise()
