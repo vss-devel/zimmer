@@ -1436,13 +1436,18 @@ async function initialise () {
     out = new Writer( outPath ); // create output file
     log( 'reserving space for header and mime type list' )
     await out.write( Buffer.alloc( headerLength + maxMimeLength ))
+    
+    if ( command.main ) {
+        mainPage.titleKey = 'A' + command.main
+    } 
 
     var dbPath = osPath.join( srcPath, 'metadata.db' )
     let preProcessed = false
     if ( await fs.exists( dbPath )) {
         preProcessed = true
         try {
-            mainPage.titleKey = 'A' + ( await fs.readFile( osPath.join( srcPath, 'M', 'mainpage' ))).toString()
+            mainPage.titleKey = mainPage.titleKey ||
+                ( 'A' + ( await fs.readFile( osPath.join( srcPath, 'M', 'mainpage' ))).toString())
         } catch ( err ) {
             warning( 'mainpage error', err )
         }
@@ -1594,7 +1599,13 @@ async function main () {
   Where:
     source-directory \t path to the directory with HTML pages to pack into a ZIM file
     zim-file \t\t optional path for the output` )
-    // Mandatory arguments:
+    // zimmer options:
+    .option( '--optimg', 'optimise images' )
+    .option( '--jpegquality <factor>', 'JPEG quality', parseInt, 60 )
+    .option( '--no-compress', "do not compress clusters" )
+    .option( '--main <page-title>', 'title of the "home" page' )
+    .option( '--no-zimlib4-fix', 'no workaround for zimlib v4.0.4' )
+    // zimwriterfs "Mandatory" arguments:
     .option( '-w, --welcome <page>', 'path of default/main HTML page. The path must be relative to HTML_DIRECTORY', 'index.htm' )
     .option( '-f, --favicon <file>', 'path of ZIM file favicon. The path must be relative to HTML_DIRECTORY and the image a 48x48 PNG', 'favicon.png' )
     .option( '-l, --language <id>', 'language code of the content in ISO639-3', 'eng' )
@@ -1602,7 +1613,7 @@ async function main () {
     .option( '-d, --description <text>', 'short description of the content', '' )
     .option( '-c, --creator  <text>', 'creator(s) of the content', '' )
     .option( '-p, --publisher  <text>', 'creator of the ZIM file itself', '' )
-    // Optional arguments:
+    // zimwriterfs "Optional" arguments:
     .option( '-v, --verbose', 'print processing details on STDOUT' )
     .option( '-m, --minChunkSize <size>', 'number of bytes per ZIM cluster (default: 2048)', parseInt, 2048 )
     .option( '-x, --inflateHtml', 'try to inflate HTML files before packing (*.html, *.htm, ...)' )
@@ -1610,11 +1621,6 @@ async function main () {
     .option( '-r, --redirects <path>', 'path to the CSV file with the list of redirects (url, title, target_url tab separated)', '' )
     // Not implemented
     //~ .option( '-i, --withFullTextIndex', 'index the content and add it to the ZIM' )
-    // Extra arguments:
-    .option( '--optimg', 'optimise images' )
-    .option( '-4, --no-zimlib4-fix', 'no zimlib v4.0.4 compatibility mode' )
-    .option( '--jpegquality <factor>', 'JPEG quality', parseInt, 60 )
-    .option( '--no-compress', "do not compress clusters" )
     .parse( osProcess.argv )
 
     log( command )
