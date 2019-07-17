@@ -62,8 +62,43 @@ const mimeMagic = new mmmagic.Magic( mmmagic.MAGIC_MIME_TYPE )
 const moment = require("moment")
 require("moment-duration-format")
 
-const startTime = Date.now()
 const cpuCount = os.cpus().length
+
+const startTime = Date.now()
+
+function elapsedStr( from , to = Date.now()) {
+    return moment.duration( to - from ).format('d[d]hh:mm:ss.SSS',{ stopTrim: "h" })
+}
+
+function print ( ...args ) {
+    console.log( ... args )
+}
+
+const tick = (( slow ) => {
+    let ping = 0
+    return () => {
+        if (( ping++ ) % slow == 0 )
+            osProcess.stdout.write( '.' )
+    }
+}) ( 100 )
+
+function log ( ...args ) {
+    if ( command.quiet )
+        return
+    else if ( command.verbose )
+        console.log( elapsedStr( startTime ), ... args )
+    else
+        tick()
+}
+
+function warning ( ...args ) {
+    log( elapsedStr( startTime ), ...args )
+}
+
+function fatal ( ...args ) {
+    console.trace( elapsedStr( startTime ), ... args )
+    osProcess.exit( 1 )
+}
 
 var srcPath
 var outPath
@@ -168,23 +203,6 @@ function getNameSpace ( mimeType ) {
     else if ( mimeType.split( '/' )[ 0 ] == 'image' )
         return 'I'
     return '-'
-}
-
-function elapsedStr( from , to = Date.now()) {
-    return moment.duration( to - from ).format('d[d]hh:mm:ss.SSS',{ stopTrim: "h" })
-}
-
-function log ( ...args ) {
-    console.log( elapsedStr( startTime ), ... args )
-}
-
-function warning ( ...args ) {
-    log( ...args )
-}
-
-function fatal ( ...args ) {
-    console.trace( elapsedStr( startTime ), ... args )
-    osProcess.exit( 1 )
 }
 
 function mimeFromData ( data ) {
@@ -1615,6 +1633,7 @@ async function main () {
     .option( '-p, --publisher  <text>', 'creator of the ZIM file itself', '' )
     // zimwriterfs "Optional" arguments:
     .option( '-v, --verbose', 'print processing details on STDOUT' )
+    .option( '-q, --quiet', 'do not print on STDOUT' )
     .option( '-m, --minChunkSize <size>', 'number of bytes per ZIM cluster (default: 2048)', parseInt, 2048 )
     .option( '-x, --inflateHtml', 'try to inflate HTML files before packing (*.html, *.htm, ...)' )
     .option( '-u, --uniqueNamespace', 'put everything in the same namespace "A". Might be necessary to avoid problems with dynamic/javascript data loading' )
@@ -1643,7 +1662,7 @@ async function main () {
     //~ }
 
     await core ()
-    log( 'Done...' )
+    print( 'Done' )
 }
 
 main ()

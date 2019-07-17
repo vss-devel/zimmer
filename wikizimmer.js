@@ -57,9 +57,43 @@ const mimeMagic = new mmmagic.Magic( mmmagic.MAGIC_MIME_TYPE )
 const moment = require("moment")
 require("moment-duration-format")
 
+const cpuCount = os.cpus().length
+
 const startTime = Date.now()
 
-const cpuCount = os.cpus().length
+function elapsedStr( from , to = Date.now()) {
+    return moment.duration( to - from ).format('d[d]hh:mm:ss.SSS',{ stopTrim: "h" })
+}
+
+function print ( ...args ) {
+    console.log( ... args )
+}
+
+const tick = (( slow ) => {
+    let ping = 0
+    return () => {
+        if (( ping++ ) % slow == 0 )
+            osProcess.stdout.write( '.' )
+    }
+}) ( 100 )
+
+function log ( ...args ) {
+    if ( command.quiet )
+        return
+    else if ( command.verbose )
+        console.log( elapsedStr( startTime ), ... args )
+    else
+        tick()
+}
+
+function warning ( ...args ) {
+    log( elapsedStr( startTime ), ...args )
+}
+
+function fatal ( ...args ) {
+    console.trace( elapsedStr( startTime ), ... args )
+    osProcess.exit( 1 )
+}
 
 const mimeIds = []
 
@@ -77,23 +111,6 @@ function sanitizeFN ( name ) { // after https://github.com/pillarjs/encodeurl
 	} else {
 		return name
 	}
-}
-
-function elapsedStr( from , to = Date.now()) {
-    return moment.duration( to - from ).format('d[d]hh:mm:ss.SSS',{ stopTrim: "h" })
-}
-
-function log ( ...args ) {
-    console.log( elapsedStr( startTime ), ... args )
-}
-
-function warning ( ...args ) {
-    log( ...args )
-}
-
-function fatal ( ...args ) {
-    console.trace( elapsedStr( startTime ), ... args )
-    osProcess.exit( 1 )
 }
 
 function mimeFromData ( data ) {
@@ -1194,7 +1211,7 @@ async function getPages () {
             await batchPages( nameSpace )
         }
     }
-    log( '**************** done' )
+    log( '**************** download finished' )
 }
 
 async function loadCss( dom ) {
@@ -1205,9 +1222,7 @@ async function loadCss( dom ) {
 }
 
 async function initWikiDb () {
-
     let dbName = osPath.join( wiki.outPath, 'metadata.db' )
-
     try {
         await fs.unlink( dbName )
     } catch (err) {
@@ -1291,7 +1306,7 @@ async function core ( sampleURL, outPath ) {
     }
 }
 
-function main () {
+async function main () {
     command
     .version( packageInfo.version )
     .arguments( '<wiki-page-URL> [<output-path>]' )
@@ -1323,11 +1338,14 @@ function main () {
         return patterns.split( '|' )
         } )
     .option( '-r, --rmdir', 'delete destination directory before processing the source' )
+    .option( '-v, --verbose', 'print processing details on STDOUT' )
+    .option( '-q, --quiet', 'do not print on STDOUT' )
     .parse( process.argv )
 
     log( command.opts() )
 
-    core( ... command.args )
+    await core( ... command.args )
+    print( 'Done' )
 }
 
 main ()
