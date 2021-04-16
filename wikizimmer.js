@@ -560,8 +560,8 @@ class ArticleStub extends WikiItem {
         if ( this.title )
             return this.title
         if ( this.url && this.url.startsWith( wiki.articleUriPrefix )) {
-            const urlParsed = urlconv.parse( this.url )
-            const subPath =  urlParsed.pathname.replace( wiki.articlePath, '' ).replace( /_/g, ' ' )
+            const urlParsed = urlconv.parse( this.url, true )
+            const subPath = ( urlParsed.query[ 'title' ] || urlParsed.pathname.replace( wiki.articlePath, '' ) ).replace( /_/g, ' ' )
             return decodeURIComponent( subPath )
         }
         return null // not a local article
@@ -569,8 +569,8 @@ class ArticleStub extends WikiItem {
 
     basePath () {
         if ( this.url && this.url.startsWith( wiki.articleUriPrefix )) {
-            const urlParsed = urlconv.parse( this.url )
-            const subPath =  urlParsed.pathname.replace( wiki.articlePath, '' )
+            const urlParsed = urlconv.parse( this.url, true )
+            const subPath = urlParsed.query[ 'title' ] || urlParsed.pathname.replace( wiki.articlePath, '' )
             return sanitizeFN( decodeURIComponent( subPath )) + '.html'
         }
         return null // not a local article
